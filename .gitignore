@@ -1,0 +1,29 @@
+.claude/
+*.class
+*.jar
+*.apk
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+
+# tools-android build artifacts
+tools-android/output/
+tools-android/bin/
+tools-android/share/
+tools-android/tools-bundle.tar.gz
+tools-android/bundle-staging/
+
+# ruby-android build artifacts
+ruby-android/bundle-staging/
+ruby-android/ruby-msf-bundle.tar.gz
+
+# Docker/build output (rigenerabile)
+build-output/
+build.log
+build*.log
+
+# app build artifacts
+app/build-output/
+app/cSploit/assets/ruby-msf-bundle.tar.gz.bin

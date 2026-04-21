@@ -1,0 +1,13 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+.DS_Store
+/app/build/
+/build/
+/tools/output/
+/tools/bundle-staging/
+/tools/tools-bundle.tar.gz
+/ruby-msf/output/
+/app/src/main/assets/ruby-msf-bundle.tar.gz.bin
+strix/ruby-msf/ruby-msf-bundle.tar.gz

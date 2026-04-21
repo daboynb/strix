@@ -1,0 +1,11 @@
+--- a/libdnet-stripped/src/route-linux.c
++++ b/libdnet-stripped/src/route-linux.c
+@@ -1,3 +1,8 @@
++/*
++ * Android NDK patch: IN6_IS_ADDR_UNSPECIFIED expects struct in6_addr*
++ * but libdnet uses its own struct ip6_addr. Cast to fix type mismatch.
++ */
++
+ /* Android NDK: cast ip6_addr to in6_addr for IN6_IS_ADDR_UNSPECIFIED macro */
+-IN6_IS_ADDR_UNSPECIFIED(&entry->route_gw.addr_ip6)
++IN6_IS_ADDR_UNSPECIFIED((struct in6_addr*)&entry->route_gw.addr_ip6)

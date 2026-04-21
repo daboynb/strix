@@ -1,0 +1,37 @@
+FROM ruby-android-build AS ruby-builder
+
+RUN /opt/build-ruby.sh || true
+
+# ============================================================
+# Stage 2: MSF bundle install + cross-compile native gems
+# ============================================================
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NDK_VERSION=r27c
+ENV API_LEVEL=29
+ENV TARGET=aarch64-linux-android
+ENV ANDROID_NDK_HOME=/opt/android-ndk
+
+# Build tools + host dev libs (per bundle install nativo)
+RUN apt-get update && apt-get install -y \
+    build-essential ruby ruby-dev bundler \
+    wget curl git pkg-config file perl \
+    libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev \
+    libsqlite3-dev libpq-dev libxml2-dev libxslt1-dev \
+    libpcap-dev flex bison xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia artefatti dallo stage 1
+COPY --from=ruby-builder /output/ruby-android /opt/ruby-android
+COPY --from=ruby-builder /output/ruby-host /opt/ruby-host
+COPY --from=ruby-builder /output/android-deps /opt/android-deps
+COPY --from=ruby-builder /opt/android-ndk /opt/android-ndk
+
+ENV TOOLCHAIN=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64
+ENV PATH="/opt/ruby-host/bin:${TOOLCHAIN}/bin:${PATH}"
+
+COPY build-msf.sh /opt/build-msf.sh
+RUN chmod +x /opt/build-msf.sh
+
+CMD ["/opt/build-msf.sh"]

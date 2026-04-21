@@ -1,0 +1,64 @@
+--- a/src/ec_sniff_unified.c
++++ b/src/ec_sniff_unified.c
+@@ -104,15 +104,21 @@
+
+ void forward_unified_sniff(struct packet_object *po)
+ {
+-   /* if it was not initialized, no packet are forwardable */
++   int use_l2_forward = 0;
++
++   /* check if L3 raw socket is available (fails on Android) */
+    switch(ntohs(po->L3.proto)) {
+       case LL_TYPE_IP:
+-         if(!EC_GBL_LNET->lnet_IP4)
+-            return;
++         if(!EC_GBL_LNET->lnet_IP4) {
++            use_l2_forward = 1;
++         }
+          if(!(EC_GBL_IFACE->has_ipv4))
+             return;
+          break;
+       case LL_TYPE_IP6:
+-         if(!EC_GBL_LNET->lnet_IP6)
+-            return;
++         if(!EC_GBL_LNET->lnet_IP6) {
++            use_l2_forward = 1;
++         }
+          if(!(EC_GBL_IFACE->has_ipv6))
+             return;
+          break;
+@@ -129,8 +135,14 @@
+     * will route them to the correct destination (host or gw)
+     */
+
+-   /* don't forward dropped packets */
+-   if ((po->flags & PO_DROPPED) == 0)
++   /* don't forward dropped packets.
++    * On Android, L3 raw sockets (LIBNET_RAW4_ADV) fail to initialize
++    * because AF_INET+SOCK_RAW is restricted. Fall back to L2 link-layer
++    * forwarding which uses AF_PACKET and works on Android.
++    */
++   if ((po->flags & PO_DROPPED) == 0 && use_l2_forward)
++      send_to_L2(po);
++   else if ((po->flags & PO_DROPPED) == 0)
+       send_to_L3(po);
+
+     /*
+--- a/src/ec_send.c
++++ b/src/ec_send.c
+@@ -1147,7 +1147,14 @@
+    proto = ntohs(sip->addr_type);
+
+    /* if not lnet warn the developer ;) */
+-   BUG_IF(iface->lnet == 0);
++   if(iface->lnet == NULL) {
++      /* On Android, iface->lnet may be NULL if libnet link-layer init failed.
++       * Try using the global interface's lnet context instead. */
++      if(EC_GBL_IFACE && EC_GBL_IFACE->lnet)
++         iface = EC_GBL_IFACE;
++      else
++         return -1;
++   }
+    l = iface->lnet;
+
+    SEND_LOCK;

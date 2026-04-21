@@ -1,0 +1,41 @@
+/*
+ * This file is part of the dSploit.
+ *
+ * Copyleft of Simone Margaritelli aka evilsocket <evilsocket@gmail.com>
+ *
+ * dSploit is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * dSploit is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with dSploit.  If not, see <http://www.gnu.org/licenses/>.
+ */
+package org.csploit.strix.data.wifi.algorithms
+
+import org.csploit.strix.data.wifi.Keygen
+
+/**
+ * Algorithm for Pirelli Discus DRG A225 WiFi router.
+ * Link: http://www.remote-exploit.org/content/Pirelli_Discus_DRG_A225_WiFi_router.pdf
+ */
+class DiscusKeygen(
+    ssid: String, mac: String, level: Int, enc: String
+) : Keygen(ssid, mac, level, enc) {
+
+    override fun getKeys(): List<String> {
+        val routerEssid = Integer.parseInt(this.ssid.substring(this.ssid.length - 6), 16)
+        val result = (routerEssid - ESSID_CONST) shr 2
+        addPassword("YW0$result")
+        return getResults()
+    }
+
+    companion object {
+        private const val ESSID_CONST = 0xD0EC31
+    }
+}

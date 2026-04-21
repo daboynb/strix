@@ -1,0 +1,5 @@
+build-output/** filter=lfs diff=lfs merge=lfs -text
+ruby-android/ruby-msf-bundle.tar.gz filter=lfs diff=lfs merge=lfs -text
+build-output/ruby-msf-bundle.tar.gz filter=lfs diff=lfs merge=lfs -text
+build-output/ruby-host/lib/libruby-static.a filter=lfs diff=lfs merge=lfs -text
+*.gem filter=lfs diff=lfs merge=lfs -text
