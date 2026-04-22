@@ -1,5 +1,7 @@
 # Strix
 
+> **⚠️ DEVELOPMENT STATUS:** This project is currently under active development and is not yet considered stable.
+
 Strix is an Android network security assessment suite — a modern, ground-up rewrite of the ideas behind [cSploit](https://github.com/cSploit/android), built for current Android versions with a Kotlin + Jetpack Compose stack.
 
 It bundles a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof) and a cross-compiled Ruby + Metasploit Framework runtime inside a single APK, and exposes them through a unified mobile UI.
