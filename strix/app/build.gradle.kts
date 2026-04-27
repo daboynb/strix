@@ -1,9 +1,17 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.kapt")
+}
+
+val keystorePropsFile = file("${System.getProperty("user.home")}/.strix/keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) FileInputStream(keystorePropsFile).use { load(it) }
 }
 
 android {
@@ -16,6 +24,17 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (keystorePropsFile.exists()) {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     compileOptions {
@@ -54,6 +73,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            signingConfig = if (keystorePropsFile.exists()) signingConfigs.getByName("release") else null
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

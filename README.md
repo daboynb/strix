@@ -8,6 +8,12 @@ It bundles a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof)
 
 > **Strix is intended strictly for authorized security testing, education, and research on networks you own or have explicit written permission to assess. Running these tools against systems you do not control is illegal in most jurisdictions.**
 
+## Screenshots
+
+<p align="center">
+  <img src="strix/docs/screenshots/01-host-list.png" alt="Strix — host discovery" width="280">
+</p>
+
 ## Why this project exists
 
 cSploit — once the reference "pentest on your phone" app — has been effectively unmaintained for years. Android evolved (SELinux, scoped storage, API 29+ restrictions, 64-bit-only, Compose) and the old C-and-Java codebase stopped keeping up.
