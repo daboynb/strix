@@ -14,8 +14,22 @@ It bundles a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof)
 ## Screenshots
 
 <p align="center">
-  <img src="strix/docs/screenshots/01-host-list.png" alt="Strix — host discovery" width="280">
+  <img src="strix/docs/screenshots/00-launch.png" alt="Launch" width="240">
+  <img src="strix/docs/screenshots/01-host-discovery.png" alt="Host discovery" width="240">
+  <img src="strix/docs/screenshots/02-host-detail.png" alt="Host detail" width="240">
 </p>
+<p align="center">
+  <img src="strix/docs/screenshots/03-port-scanner.png" alt="Port scanner" width="240">
+  <img src="strix/docs/screenshots/04-brute-force.png" alt="Brute force" width="240">
+  <img src="strix/docs/screenshots/05-exploit-finder.png" alt="Exploit finder" width="240">
+</p>
+<p align="center">
+  <img src="strix/docs/screenshots/06-msf-module.png" alt="MSF module" width="240">
+  <img src="strix/docs/screenshots/07-msf-shell.png" alt="MSF shell" width="240">
+  <img src="strix/docs/screenshots/09-msf-shell-cmds.png" alt="MSF shell commands" width="240">
+</p>
+
+_More screenshots are coming._
 
 ## What Strix does
 
