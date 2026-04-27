@@ -40,6 +40,12 @@ It bundles a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof)
 - **dSploit** — cSploit's predecessor.
 - **Nmap, Hydra, Ettercap, tcpdump, arpspoof, Metasploit Framework, Ruby** — the actual engines Strix ships and drives. All credit for the scanning/exploitation capability goes to those projects and their maintainers.
 
+## License
+
+Strix is licensed under the **GNU General Public License v3.0** (GPLv3). See [`LICENSE`](LICENSE) for the full text.
+
+This choice mirrors the licensing of cSploit and dSploit, from which Strix inherits algorithms (notably the `WirelessMatcher` WiFi keygen) and overall design.
+
 ## Disclaimer
 
 This software is provided for educational and authorized security testing purposes only. The authors accept no responsibility for misuse. You are solely responsible for ensuring that any use of this tool complies with applicable local, state, national, and international laws.
