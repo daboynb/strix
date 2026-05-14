@@ -79,6 +79,18 @@ class MitmViewModel @Inject constructor(
                 dnsEntries = listOf(DnsEntry("", "")),
             ),
         )
+
+        // MITM modes are mutually exclusive per host — one session, one shared
+        // arpspoof job. Opening this screen for a mode different from whatever
+        // is stored for [ip] must tear down the previous mode (and drop its
+        // stale session) so its notification/state doesn't leak into this one.
+        val existing = store.sessionOf(ip)
+        if (existing != null && existing.mode != initialMode) {
+            if (existing.isRunning) {
+                teardownMode(existing.mode, existing.killActive)
+            }
+            store.clear(ip)
+        }
     }
 
     val uiState: StateFlow<MitmUiState> = combine(
@@ -229,10 +241,21 @@ class MitmViewModel @Inject constructor(
         val session = store.sessionOf(ip)
         val mode = session?.mode ?: _local.value.mode
         val wasKilled = session?.killActive ?: false
-        stopAll()
         store.appendLog(ip, "[stopped by user]")
         store.setRunning(ip, mode, false)
         store.setKillActive(ip, false)
+        teardownMode(mode, wasKilled)
+    }
+
+    /**
+     * Cancel every process for [mode] and undo its system-level changes (kill
+     * rules, ettercap/iptables cleanup). Shared by [stop] and the mode-switch
+     * reconciliation in `init` — opening a different MITM mode for a host must
+     * first tear down whatever mode was previously running, since all modes
+     * share the single per-host arpspoof job + session.
+     */
+    private fun teardownMode(mode: MitmMode, wasKilled: Boolean) {
+        stopAll()
         viewModelScope.launch {
             if (wasKilled) {
                 for (cmd in mitmRunner.getKillCommands(ip, enable = false)) {
