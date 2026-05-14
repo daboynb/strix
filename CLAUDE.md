@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `strix/` — the Android app (Kotlin + Jetpack Compose). Sole module.
 
-The Gradle root is `strix/`. All `gradlew` commands below run from there.
+The Gradle root is `strix/`; the `:app` module is the only project. Kotlin sources live under `app/src/main/kotlin/org/csploit/strix/` (note: `kotlin/`, not `java/`). `compileSdk 35`, `minSdk 29`, `targetSdk 34`. The release build signs only when `strix/keystore.properties` exists — otherwise `signingConfig` is null. All `gradlew` commands below run from `strix/`.
 
 ## Build / run
 
@@ -43,8 +43,8 @@ Single-module Android app (`:app`, namespace `org.csploit.strix`). MVVM with Hil
 
 ### Three layers under `org.csploit.strix`
 
-- **`core/`** — process execution, root detection, logging. `ProcessManager.execute()` is the canonical way to run a binary: it spawns `su -c` (or `sh -c` when `asSu=false`), wraps stdout/stderr/exit/kill into a `Flow<ProcessEvent>`, and kills the process when the collector cancels. Every long-running tool integration goes through this.
-- **`data/`** — one Kotlin class per integrated tool/capability (`PortScanner`, `MitmRunner`, `Hydra*`, `MsfDaemon`, `MsfRpcClient`, `PacketCaptureRunner`, `TracerouteRunner`, `PacketForger`, `DnsSpoofServer`, `RouterAnalyzer`, `NetworkScanner`, `NetworkManager`, `TargetRepository`, `AppSettings`). Each is `@Singleton`-injected and exposes `Flow`/`StateFlow` to the UI. The `wifi/` subpackage is the cSploit WPA/WEP keygen port (`WirelessMatcher` + per-vendor `algorithms/`).
+- **`core/`** — process execution, root detection, logging, and scan-lifecycle plumbing. `ProcessManager.execute()` is the canonical way to run a binary: it spawns `su -c` (or `sh -c` when `asSu=false`), wraps stdout/stderr/exit/kill into a `Flow<ProcessEvent>`, and kills the process when the collector cancels. Every long-running tool integration goes through this. `ScanRegistry` (`@Singleton`) tracks active scan tasks as a `StateFlow`; `ScanService` is a foreground `Service` that observes it to keep the process alive while a scan runs; `StrixNotifications` owns the notification channels.
+- **`data/`** — one Kotlin class per integrated tool/capability (`PortScanner`, `MitmRunner`, `HydraModules`, `CredentialTester`, `MsfDaemon`, `MsfRpcClient`, `PacketCaptureRunner`, `TracerouteRunner`, `PacketForger`, `DnsSpoofServer`, `RouterAnalyzer`, `HttpProbe`, `NetworkScanner`, `NetworkManager`, `OuiLookup`, `TargetRepository`, `AppSettings`), plus extractors (`ToolsExtractor`, `RubyExtractor`, `ToolManager`) and in-memory session stores (`BruteForceSessionStore`, `MitmSessionStore`). Each is `@Singleton`-injected and exposes `Flow`/`StateFlow` to the UI. The `wifi/` subpackage is the cSploit WPA/WEP keygen port (`WirelessMatcher` + per-vendor `algorithms/`).
 - **`ui/<feature>/`** — one folder per screen (`hostlist`, `hostdetail`, `portscan`, `mitm`, `bruteforce`, `msf`, `packetcapture`, `packetforger`, `traceroute`, `wifikeygen`, `settings`, `splash`). Routes and string args are centralized in `ui/navigation/StrixNavigation.kt` (`Routes` object).
 - **`domain/model/`** — pure data classes shared across layers.
 - **`di/AppModule.kt`** — Hilt bindings.
@@ -72,7 +72,7 @@ Every offensive feature requires `su`. `RootChecker` gates the splash flow; runn
 - Long-running tool runs are exposed as `Flow<ProcessEvent>` from `data/` and collected in ViewModels — cancelling collection terminates the underlying process. Don't add manual `Process.destroy()` paths in parallel.
 - New tool integrations should add a class under `data/`, route subprocess calls through `ProcessManager`, and avoid hardcoding paths — use `ToolManager.toolsPath`/`rubyPath`/`msfPath`.
 - New screens go under `ui/<feature>/`, register in `StrixNavigation.kt`'s `Routes`, and inject ViewModels via Hilt (`hilt-navigation-compose`).
-- Reuse before reinventing: `WirelessMatcher`/`Keygen` already cover WiFi keygen; `MsfRpcClient` already wraps msfrpcd; `HydraModules` already enumerates supported hydra services. The TODO and recent commit history flag what's still open.
-- `TODO.md` (in `strix/`) is the single source of truth for outstanding work and known bugs (e.g. the BruteForce WebView first-expand sizing bug — see `StrixApplication.onCreate` for the pre-warm workaround).
+- Reuse before reinventing: `WirelessMatcher`/`Keygen` already cover WiFi keygen; `MsfRpcClient` already wraps msfrpcd; `HydraModules` already enumerates supported hydra services. Recent commit history flags what's still open.
+- `StrixApplication.onCreate` pre-warms a throwaway `WebView` on a posted main-thread tick — this works around the BruteForce WebView first-expand sizing bug (Chromium lazy-init during Compose measurement sizes the `AndroidView` with wrong constraints). Don't remove it.
 - Assets ending in `.tar.gz` are not compressed by aapt — keep that exemption when adding similar blobs.
 - App is Italian-leaning in comments/docs but code identifiers are English; keep new code English.
