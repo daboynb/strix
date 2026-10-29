@@ -30,16 +30,20 @@ fun PortRow(
     onBrute: () -> Unit = {},
     onExploit: () -> Unit = {},
 ) {
+    // Keep container/content pairs matched (dynamic palettes can invert them).
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when (port.state) {
+        "open" -> colors.secondaryContainer to colors.onSecondaryContainer
+        "filtered" -> colors.tertiaryContainer to colors.onTertiaryContainer
+        else -> colors.surfaceVariant to colors.onSurfaceVariant
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when (port.state) {
-                "open" -> MaterialTheme.colorScheme.secondaryContainer
-                "filtered" -> MaterialTheme.colorScheme.tertiaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Row(
@@ -56,16 +60,12 @@ fun PortRow(
                 port.state,
                 modifier = Modifier.width(56.dp),
                 style = MaterialTheme.typography.bodySmall,
-                color = when (port.state) {
-                    "open" -> MaterialTheme.colorScheme.primary
-                    "filtered" -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = contentColor,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(port.service ?: "unknown", style = MaterialTheme.typography.bodyMedium)
                 port.version?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = contentColor)
                 }
             }
             if (showExploit) {

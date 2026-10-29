@@ -9,6 +9,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,7 @@ import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
 import org.csploit.strix.core.ScanRegistry
+import org.csploit.strix.core.shellQuote
 import org.csploit.strix.data.AppSettings
 import org.csploit.strix.data.BruteForceSession
 import org.csploit.strix.data.BruteForceSessionStore
@@ -86,8 +88,13 @@ class BruteForceViewModel @Inject constructor(
     private val attacks = HydraModules.forService(service, port)
     private val methods: List<String> = attacks.map { it.module }
 
+    // Reopened (e.g. from the notification) while an attack runs: select the
+    // running attack's method instead of the default, so its state and Stop show.
     private val _local = MutableStateFlow(
-        LocalState(method = attacks.firstOrNull()?.module ?: "http-get"),
+        LocalState(
+            method = methods.firstOrNull { scanRegistry.isActive(taskId(it)) }
+                ?: attacks.firstOrNull()?.module ?: "http-get",
+        ),
     )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -192,7 +199,7 @@ class BruteForceViewModel @Inject constructor(
         val passArg = when (local.passwordMode) {
             PasswordMode.WORDLIST -> {
                 val path = local.customPasswordsPath ?: defaultPasswords
-                "-P '$path'"
+                "-P ${shellQuote(path)}"
             }
             PasswordMode.CHARSET -> {
                 val charset = buildString {
@@ -205,62 +212,81 @@ class BruteForceViewModel @Inject constructor(
         }
 
         val needsPath = method.contains("http")
-        val target = if (needsPath) "$ip $method ${local.path}" else "$ip $method"
+        // The http(s)-post-form spec ("/login.php:user=^USER^&pass=^PASS^:F=x")
+        // contains shell metacharacters: every user-controlled word is quoted.
+        val target = if (needsPath) {
+            "${shellQuote(ip)} ${shellQuote(method)} ${shellQuote(local.path)}"
+        } else {
+            "${shellQuote(ip)} ${shellQuote(method)}"
+        }
 
+        val command = "hydra -L ${shellQuote(usersPath)} $passArg -f -t ${appSettings.hydraThreads} -s $port $target"
+        store.appendLog(key, "[+] $command")
+
+        val id = taskId(method)
+        hydraJob = scanRegistry.launch(
+            id = id,
+            label = "Hydra $method $ip:$port",
+            deepLink = Routes.deepLinkBruteForce(ip, port, service),
+            onError = { t ->
+                store.appendLog(key, "[!] Error: ${t.message ?: t.javaClass.simpleName}")
+            },
+        ) {
+            val self = coroutineContext.job
+            try {
+                runHydra(command, key, method)
+            } finally {
+                // However the run ends; a replacing run with the same id owns the flag.
+                if (!scanRegistry.isReplaced(id, self)) store.setRunning(key, false)
+            }
+        }
+    }
+
+    private suspend fun runHydra(command: String, key: String, method: String) {
         val credRegex = Regex("""\[\d+]\[\S+]\s+host:\s+\S+\s+login:\s+(\S+)\s+password:\s*(.*)""")
         val statusRegex = Regex(
             """\[STATUS]\s*\S+\s+tries/min,\s*(\d+)\s+tries.*?(\d+)\s+todo""",
             RegexOption.IGNORE_CASE,
         )
-
-        val command = "hydra -L '$usersPath' $passArg -f -t ${appSettings.hydraThreads} -s $port $target"
-        store.appendLog(key, "[+] $command")
-
-        hydraJob = scanRegistry.launch(
-            id = "bruteforce:$ip:$port:$method",
-            label = "Hydra $method $ip:$port",
-            deepLink = Routes.deepLinkBruteForce(ip, port, service),
-        ) {
-            processManager.execute(
-                command = command,
-                toolsDir = toolManager.toolsPath,
-                workDir = toolManager.corePath,
-            ).collect { event ->
-                when (event) {
-                    is ProcessEvent.StdoutLine -> {
-                        store.appendLog(key, event.line)
-                        credRegex.find(event.line)?.let { match ->
-                            val creds = "${match.groupValues[1]}:${match.groupValues[2].trim()}"
-                            store.setFoundCreds(key, creds)
-                            scanRegistry.notifications.notifyCredentialCaptured(
-                                host = "$ip:$port ($method)",
-                                credential = creds,
-                                deepLink = Routes.deepLinkBruteForce(ip, port, service),
-                            )
-                        }
-                        statusRegex.find(event.line)?.let { match ->
-                            val tries = match.groupValues[1].toLongOrNull() ?: 0
-                            val todo = match.groupValues[2].toLongOrNull() ?: 0
-                            val total = tries + todo
-                            val pct = if (total > 0) tries.toFloat() / total else null
-                            store.setStatus(key, event.line.trim(), pct)
-                        }
-                    }
-                    is ProcessEvent.StderrLine -> store.appendLog(key, event.line)
-                    is ProcessEvent.Exited -> {
-                        store.appendLog(key, "[exited: ${event.code}]")
-                        store.setRunning(key, false)
-                        val found = store.sessionOf(key)?.foundCreds
-                        scanRegistry.notifications.notifyScanComplete(
-                            title = "Brute-force complete",
-                            message = if (found != null) "$ip:$port — found $found" else "$ip:$port — no creds found",
+        processManager.execute(
+            command = command,
+            toolsDir = toolManager.toolsPath,
+            workDir = toolManager.corePath,
+        ).collect { event ->
+            when (event) {
+                is ProcessEvent.StdoutLine -> {
+                    store.appendLog(key, event.line)
+                    credRegex.find(event.line)?.let { match ->
+                        val creds = "${match.groupValues[1]}:${match.groupValues[2].trim()}"
+                        store.setFoundCreds(key, creds)
+                        scanRegistry.notifications.notifyCredentialCaptured(
+                            host = "$ip:$port ($method)",
+                            credential = creds,
                             deepLink = Routes.deepLinkBruteForce(ip, port, service),
                         )
                     }
-                    is ProcessEvent.Killed -> {
-                        store.appendLog(key, "[killed: signal ${event.signal}]")
-                        store.setRunning(key, false)
+                    statusRegex.find(event.line)?.let { match ->
+                        val tries = match.groupValues[1].toLongOrNull() ?: 0
+                        val todo = match.groupValues[2].toLongOrNull() ?: 0
+                        val total = tries + todo
+                        val pct = if (total > 0) tries.toFloat() / total else null
+                        store.setStatus(key, event.line.trim(), pct)
                     }
+                }
+                is ProcessEvent.StderrLine -> store.appendLog(key, event.line)
+                is ProcessEvent.Exited -> {
+                    store.appendLog(key, "[exited: ${event.code}]")
+                    store.setRunning(key, false)
+                    val found = store.sessionOf(key)?.foundCreds
+                    scanRegistry.notifications.notifyScanComplete(
+                        title = "Brute-force complete",
+                        message = if (found != null) "$ip:$port — found $found" else "$ip:$port — no creds found",
+                        deepLink = Routes.deepLinkBruteForce(ip, port, service),
+                    )
+                }
+                is ProcessEvent.Killed -> {
+                    store.appendLog(key, "[killed: signal ${event.signal}]")
+                    store.setRunning(key, false)
                 }
             }
         }
@@ -268,13 +294,15 @@ class BruteForceViewModel @Inject constructor(
 
     fun stop() {
         val method = _local.value.method
-        scanRegistry.cancel("bruteforce:$ip:$port:$method")
+        scanRegistry.cancel(taskId(method))
         hydraJob = null
         store.appendLog(BruteForceSessionStore.keyFor(ip, port, method), "[stopped by user]")
         store.setRunning(BruteForceSessionStore.keyFor(ip, port, method), false)
     }
 
     private fun currentKey() = BruteForceSessionStore.keyFor(ip, port, _local.value.method)
+
+    private fun taskId(method: String) = "bruteforce:$ip:$port:$method"
 
     override fun onCleared() {
         super.onCleared()

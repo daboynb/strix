@@ -15,6 +15,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -29,17 +30,23 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onLogs: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val msfBundle by viewModel.msfBundleState.collectAsStateWithLifecycle()
+    val toolsBundle by viewModel.toolsBundleState.collectAsStateWithLifecycle()
+    val checkingUpdates by viewModel.checkingUpdates.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
@@ -49,6 +56,9 @@ fun SettingsScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },
@@ -135,6 +145,38 @@ fun SettingsScreen(
                 steps = 28,
                 onValueChange = { viewModel.setSocketTimeout(it) },
             )
+
+            HorizontalDivider()
+
+            SectionHeader("Bundles")
+
+            BundlesSection(
+                uiState = uiState,
+                tools = toolsBundle,
+                msf = msfBundle,
+                checking = checkingUpdates,
+                onCheck = viewModel::checkForUpdates,
+                onWifiOnly = viewModel::setBundleWifiOnly,
+                onReinstallTools = viewModel::reinstallTools,
+                onDownloadTools = viewModel::downloadTools,
+                onCancelTools = viewModel::cancelTools,
+                onApplyTools = viewModel::applyPendingTools,
+                onDismissTools = viewModel::dismissToolsMessage,
+                onDismissMessages = viewModel::dismissBundleMessages,
+            )
+
+            HorizontalDivider()
+
+            SectionHeader("Diagnostics")
+
+            Text(
+                "App log (also crashes) for bug reports. Share redacts Wi-Fi SSID/BSSID.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onLogs, modifier = Modifier.fillMaxWidth()) {
+                Text("View logs")
+            }
         }
     }
 }

@@ -1,11 +1,13 @@
 package org.csploit.strix.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
+import org.csploit.strix.core.shellQuote
 import org.csploit.strix.domain.model.TracerouteHop
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,7 +44,7 @@ class TracerouteRunner @Inject constructor(
         updateSession(ip) { TracerouteSession(ip = ip, isTracing = true) }
         try {
             processManager.execute(
-                command = "nmap --traceroute -Pn $ip",
+                command = "nmap --traceroute -Pn ${shellQuote(ip)}",
                 toolsDir = toolManager.toolsPath,
                 workDir = toolManager.corePath,
             ).collect { event ->
@@ -63,6 +65,11 @@ class TracerouteRunner @Inject constructor(
                     }
                 }
             }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            updateSession(ip) { it.copy(error = "Traceroute failed: ${e.message ?: e.javaClass.simpleName}") }
+            throw e
         } finally {
             updateSession(ip) { it.copy(isTracing = false) }
         }

@@ -12,10 +12,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
+import androidx.navigation.navOptions
 import kotlinx.coroutines.flow.StateFlow
 import org.csploit.strix.ui.bruteforce.BruteForceScreen
 import org.csploit.strix.ui.hostdetail.HostDetailScreen
 import org.csploit.strix.ui.hostlist.HostListScreen
+import org.csploit.strix.ui.logs.LogsScreen
 import org.csploit.strix.ui.mitm.MitmScreen
 import org.csploit.strix.ui.msf.ExploitFinderScreen
 import org.csploit.strix.ui.msf.MsfScreen
@@ -33,50 +35,68 @@ object Routes {
 
     const val SPLASH = "splash"
     const val HOST_LIST = "host_list"
-    const val HOST_DETAIL = "host_detail/{ip}/{mac}/{name}"
+    // Optional (possibly empty) string args are query parameters: an empty
+    // value can't be an empty path segment, so the builders omit them and the
+    // destination falls back to the navArgument defaultValue. Every value is
+    // Uri.encode()d; Navigation decodes path args (Uri.decode) and query args
+    // (Uri.getQueryParameters) when matching, so the ViewModels read back the
+    // original string.
+    const val HOST_DETAIL = "host_detail/{ip}?mac={mac}&name={name}"
     const val PORT_SCANNER = "port_scanner/{ip}"
     const val TRACEROUTE = "traceroute/{ip}"
-    const val PACKET_FORGER = "packet_forger/{ip}/{mac}"
+    const val PACKET_FORGER = "packet_forger/{ip}?mac={mac}"
     const val WIFI_KEYGEN = "wifi_keygen"
     const val SETTINGS = "settings"
-    const val BRUTE_FORCE = "brute_force/{ip}/{port}/{service}"
-    const val MITM = "mitm/{ip}/{mac}/{mode}"
-    const val PACKET_CAPTURE = "packet_capture/{ip}"
+    const val LOGS = "logs"
+    const val BRUTE_FORCE = "brute_force/{ip}/{port}?service={service}"
+    const val MITM = "mitm/{ip}?mac={mac}&mode={mode}"
+    const val PACKET_CAPTURE = "packet_capture?ip={ip}"
     const val MSF = "msf"
-    const val EXPLOIT_FINDER = "exploit_finder/{ip}/{port}/{service}"
+    const val EXPLOIT_FINDER = "exploit_finder?ip={ip}&port={port}&service={service}"
     const val MSF_SHELL = "msf_shell/{sessionId}"
 
-    fun hostDetail(ip: String, mac: String, name: String?) =
-        "host_detail/$ip/$mac/${name ?: ""}"
+    private fun seg(value: String): String = Uri.encode(value)
 
-    fun portScanner(ip: String) = "port_scanner/$ip"
-    fun traceroute(ip: String) = "traceroute/$ip"
-    fun packetForger(ip: String, mac: String) = "packet_forger/$ip/$mac"
-    fun mitm(ip: String, mac: String, mode: String = "SNIFFER") = "mitm/$ip/$mac/$mode"
-    fun packetCapture(ip: String) = "packet_capture/$ip"
+    private fun withQuery(base: String, vararg params: Pair<String, String?>): String {
+        val query = params
+            .filter { !it.second.isNullOrEmpty() }
+            .joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+        return if (query.isEmpty()) base else "$base?$query"
+    }
+
+    fun hostDetail(ip: String, mac: String, name: String?) =
+        withQuery("host_detail/${seg(ip)}", "mac" to mac, "name" to name)
+
+    fun portScanner(ip: String) = "port_scanner/${seg(ip)}"
+    fun traceroute(ip: String) = "traceroute/${seg(ip)}"
+    fun packetForger(ip: String, mac: String) =
+        withQuery("packet_forger/${seg(ip)}", "mac" to mac)
+    fun mitm(ip: String, mac: String, mode: String = "SNIFFER") =
+        withQuery("mitm/${seg(ip)}", "mac" to mac, "mode" to mode)
+    fun packetCapture(ip: String) = withQuery("packet_capture", "ip" to ip)
 
     fun bruteForce(ip: String, port: Int, service: String?) =
-        "brute_force/$ip/$port/${service ?: "unknown"}"
+        withQuery("brute_force/${seg(ip)}/$port", "service" to service)
 
     fun exploitFinder(ip: String, port: Int, service: String?) =
-        "exploit_finder/$ip/$port/${service ?: "unknown"}"
+        withQuery("exploit_finder", "ip" to ip, "port" to port.toString(), "service" to service)
 
     fun msfShell(sessionId: Int) = "msf_shell/$sessionId"
 
     // Deep-link URIs for notification taps. Patterns must match what's declared
-    // on each composable via navDeepLink.
-    fun deepLinkHostList(): Uri = Uri.parse("$DEEP_LINK_SCHEME://host_list")
-    fun deepLinkPortScanner(ip: String): Uri = Uri.parse("$DEEP_LINK_SCHEME://port_scanner/$ip")
+    // on each composable via navDeepLink (same shape as the routes above).
+    private fun deepLink(route: String): Uri = Uri.parse("$DEEP_LINK_SCHEME://$route")
+
+    fun deepLinkHostList(): Uri = deepLink(HOST_LIST)
+    fun deepLinkPortScanner(ip: String): Uri = deepLink(portScanner(ip))
     fun deepLinkBruteForce(ip: String, port: Int, service: String?): Uri =
-        Uri.parse("$DEEP_LINK_SCHEME://brute_force/$ip/$port/${service ?: "unknown"}")
-    fun deepLinkMitm(ip: String, mac: String, mode: String): Uri =
-        Uri.parse("$DEEP_LINK_SCHEME://mitm/$ip/$mac/$mode")
-    fun deepLinkPacketCapture(ip: String): Uri =
-        Uri.parse("$DEEP_LINK_SCHEME://packet_capture/$ip")
-    fun deepLinkTraceroute(ip: String): Uri =
-        Uri.parse("$DEEP_LINK_SCHEME://traceroute/$ip")
-    fun deepLinkMsfShell(sessionId: Int): Uri =
-        Uri.parse("$DEEP_LINK_SCHEME://msf_shell/$sessionId")
+        deepLink(bruteForce(ip, port, service))
+    fun deepLinkMitm(ip: String, mac: String, mode: String): Uri = deepLink(mitm(ip, mac, mode))
+    fun deepLinkPacketCapture(ip: String): Uri = deepLink(packetCapture(ip))
+    fun deepLinkTraceroute(ip: String): Uri = deepLink(traceroute(ip))
+    fun deepLinkMsfShell(sessionId: Int): Uri = deepLink(msfShell(sessionId))
+
+    fun deepLinkPattern(route: String): String = "$DEEP_LINK_SCHEME://$route"
 }
 
 @Composable
@@ -109,11 +129,19 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
             SplashScreen(
                 onStartupComplete = {
                     val pendingDeepLink = intentFlow?.value?.data
-                    if (pendingDeepLink != null) {
-                        navController.navigate(pendingDeepLink) {
-                            popUpTo(Routes.SPLASH) { inclusive = true }
-                        }
-                    } else {
+                    // navigate(Uri, NavOptions) explicitly: a trailing-lambda
+                    // call would resolve to the type-safe navigate<T>(route: T)
+                    // overload and try to serialize the Uri. A stale
+                    // notification may carry a URI from an older route shape:
+                    // navigate(Uri) throws if nothing matches, so fall back to
+                    // the host list instead of crashing.
+                    val handled = pendingDeepLink != null && runCatching {
+                        navController.navigate(
+                            pendingDeepLink,
+                            navOptions { popUpTo(Routes.SPLASH) { inclusive = true } },
+                        )
+                    }.isSuccess
+                    if (!handled) {
                         navController.navigate(Routes.HOST_LIST) {
                             popUpTo(Routes.SPLASH) { inclusive = true }
                         }
@@ -123,7 +151,7 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
         }
         composable(
             Routes.HOST_LIST,
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://host_list" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.HOST_LIST) }),
         ) {
             HostListScreen(
                 onHostClick = { host, _ ->
@@ -138,13 +166,16 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
                 onSettings = {
                     navController.navigate(Routes.SETTINGS)
                 },
+                onLogs = {
+                    navController.navigate(Routes.LOGS)
+                },
             )
         }
         composable(
             Routes.HOST_DETAIL,
             arguments = listOf(
                 navArgument("ip") { type = NavType.StringType },
-                navArgument("mac") { type = NavType.StringType },
+                navArgument("mac") { type = NavType.StringType; defaultValue = "" },
                 navArgument("name") { type = NavType.StringType; defaultValue = "" },
             ),
         ) {
@@ -179,7 +210,7 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
             arguments = listOf(
                 navArgument("ip") { type = NavType.StringType },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://port_scanner/{ip}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.PORT_SCANNER) }),
         ) {
             PortScannerScreen(
                 onBack = { navController.popBackStack() },
@@ -205,7 +236,7 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
             arguments = listOf(
                 navArgument("ip") { type = NavType.StringType },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://traceroute/{ip}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.TRACEROUTE) }),
         ) {
             TracerouteScreen(onBack = { navController.popBackStack() })
         }
@@ -213,14 +244,20 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
             WifiKeygenScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onLogs = { navController.navigate(Routes.LOGS) },
+            )
+        }
+        composable(Routes.LOGS) {
+            LogsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             Routes.PACKET_CAPTURE,
             arguments = listOf(
                 navArgument("ip") { type = NavType.StringType; defaultValue = "" },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://packet_capture/{ip}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.PACKET_CAPTURE) }),
         ) {
             PacketCaptureScreen(onBack = { navController.popBackStack() })
         }
@@ -231,7 +268,7 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
                 navArgument("mac") { type = NavType.StringType; defaultValue = "" },
                 navArgument("mode") { type = NavType.StringType; defaultValue = "SNIFFER" },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://mitm/{ip}/{mac}/{mode}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.MITM) }),
         ) {
             MitmScreen(onBack = { navController.popBackStack() })
         }
@@ -242,18 +279,18 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
                 navArgument("port") { type = NavType.StringType },
                 navArgument("service") { type = NavType.StringType; defaultValue = "unknown" },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://brute_force/{ip}/{port}/{service}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.BRUTE_FORCE) }),
         ) {
             BruteForceScreen(onBack = { navController.popBackStack() })
         }
         composable(
             Routes.MSF,
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://msf" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.MSF) }),
         ) {
             MsfScreen(
                 onBack = { navController.popBackStack() },
                 onExploitFinder = {
-                    navController.navigate(Routes.exploitFinder("", 0, ""))
+                    navController.navigate(Routes.exploitFinder("", 0, null))
                 },
                 onShell = { sessionId ->
                     navController.navigate(Routes.msfShell(sessionId))
@@ -270,6 +307,11 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
         ) {
             ExploitFinderScreen(
                 onBack = { navController.popBackStack() },
+                onOpenMsf = {
+                    navController.navigate(Routes.MSF) {
+                        popUpTo(Routes.EXPLOIT_FINDER) { inclusive = true }
+                    }
+                },
                 onShell = { sessionId ->
                     navController.navigate(Routes.msfShell(sessionId))
                 },
@@ -280,7 +322,7 @@ fun StrixNavigation(intentFlow: StateFlow<Intent?>? = null) {
             arguments = listOf(
                 navArgument("sessionId") { type = NavType.IntType },
             ),
-            deepLinks = listOf(navDeepLink { uriPattern = "${Routes.DEEP_LINK_SCHEME}://msf_shell/{sessionId}" }),
+            deepLinks = listOf(navDeepLink { uriPattern = Routes.deepLinkPattern(Routes.MSF_SHELL) }),
         ) {
             ShellScreen(onBack = { navController.popBackStack() })
         }

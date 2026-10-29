@@ -58,4 +58,22 @@ class AppSettings @Inject constructor(
     var msfRpcSsl: Boolean
         get() = prefs.getBoolean("msf_rpc_ssl", false)
         set(value) = prefs.edit().putBoolean("msf_rpc_ssl", value).apply()
+
+    // --- Native bundle updates ---
+
+    /** Only download bundles (and run the automatic daily check) on Wi-Fi. */
+    var bundleWifiOnly: Boolean
+        get() = prefs.getBoolean("bundle_wifi_only", true)
+        set(value) = prefs.edit().putBoolean("bundle_wifi_only", value).apply()
+
+    /** Wall-clock millis of the last successful bundle release check (both bundles). */
+    var bundleLastCheckMs: Long
+        get() = prefs.getLong("bundle_last_check_ms", 0L)
+        set(value) = prefs.edit().putLong("bundle_last_check_ms", value).apply()
+
+    /** Manifest json of the newer bundle [id] seen by the last check (null = none), for banners after restarts. */
+    fun availableManifest(id: String): String? = prefs.getString("bundle_available_$id", null)
+
+    fun setAvailableManifest(id: String, json: String?) =
+        prefs.edit().putString("bundle_available_$id", json).apply()
 }

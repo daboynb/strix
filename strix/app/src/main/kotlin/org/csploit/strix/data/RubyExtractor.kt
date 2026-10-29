@@ -1,104 +1,43 @@
 package org.csploit.strix.data
 
-import android.content.Context
-import kotlinx.coroutines.flow.MutableStateFlow
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.csploit.strix.core.Logger
-import org.csploit.strix.domain.model.ExtractionState
-import java.io.BufferedInputStream
+import org.csploit.strix.data.bundle.BundleSpec
+import org.csploit.strix.data.bundle.BundleVersions
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.zip.GZIPInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Layout + post-install patches of the Ruby + Metasploit bundle (downloaded
+ * from GitHub releases, see [org.csploit.strix.data.bundle.BundleUpdateManager]).
+ * The archive holds `ruby-android/` and `metasploit-framework/`, installed as
+ * `filesDir/ruby/` and `filesDir/msf/`. Patches run on the freshly staged
+ * tree, so every directory lookup sees exactly one candidate.
+ */
 @Singleton
 class RubyExtractor @Inject constructor() {
 
     companion object {
-        private const val ASSET_BUNDLE = "ruby-msf-bundle.tar.gz.bin"
+        const val ID = "msf"
+        private val RUBY_API_DIR = Regex("\\d+\\.\\d+\\.\\d+")
+
+        /** Highest `x.y.z` dir under `ruby/lib/ruby`, or null. */
+        fun detectRubyApiVersion(rubyDir: File): String? =
+            File(rubyDir, "lib/ruby").listFiles()
+                ?.filter { it.isDirectory && it.name.matches(RUBY_API_DIR) }
+                ?.maxWithOrNull { a, b -> BundleVersions.compareVersions(a.name, b.name) }
+                ?.name
     }
 
-    fun extract(context: Context, state: MutableStateFlow<ExtractionState>) {
-        val destDir = context.filesDir.absolutePath
-
-        context.assets.open(ASSET_BUNDLE).use { inputStream ->
-            extractTarGzWithMapping(inputStream, destDir, state)
-        }
-
-        state.value = ExtractionState.PatchingConfig
-        val msfPath = "$destDir/msf"
-        val rubyPath = "$destDir/ruby"
-        fixGemPaths(msfPath, rubyPath)
-    }
-
-    private fun extractTarGzWithMapping(
-        inputStream: java.io.InputStream,
-        destDir: String,
-        state: MutableStateFlow<ExtractionState>,
-    ) {
-        var filesExtracted = 0
-        val buffer = ByteArray(65536)
-
-        TarArchiveInputStream(
-            GZIPInputStream(BufferedInputStream(inputStream, 65536))
-        ).use { tar ->
-            var entry = tar.nextTarEntry
-            while (entry != null) {
-                val name = mapPath(entry.name)
-                if (name == null) {
-                    entry = tar.nextTarEntry
-                    continue
-                }
-
-                val outFile = File(destDir, name)
-
-                if (entry.isDirectory) {
-                    outFile.mkdirs()
-                    entry = tar.nextTarEntry
-                    continue
-                }
-
-                if (entry.isSymbolicLink || entry.isLink) {
-                    deletePathSafe(outFile)
-                    outFile.parentFile?.mkdirs()
-                    try {
-                        Files.createSymbolicLink(outFile.toPath(), Paths.get(entry.linkName))
-                    } catch (e: Exception) {
-                        Logger.warning("RubyExtractor: symlink failed: $name -> ${entry.linkName}")
-                    }
-                    filesExtracted++
-                    entry = tar.nextTarEntry
-                    continue
-                }
-
-                outFile.parentFile?.mkdirs()
-                if (outFile.exists()) deletePathSafe(outFile)
-
-                FileOutputStream(outFile).use { out ->
-                    var len = tar.read(buffer)
-                    while (len > 0) {
-                        out.write(buffer, 0, len)
-                        len = tar.read(buffer)
-                    }
-                }
-
-                if (entry.mode and 0b001_001_001 != 0) {
-                    outFile.setExecutable(true, false)
-                }
-
-                filesExtracted++
-                if (filesExtracted % 100 == 0) {
-                    state.value = ExtractionState.Extracting(filesExtracted, name)
-                }
-                entry = tar.nextTarEntry
-            }
-        }
-
-        Logger.info("RubyExtractor: extracted $filesExtracted files to $destDir")
-    }
+    val spec = BundleSpec(
+        id = ID,
+        liveDirs = listOf("msf", "ruby"),
+        mapPath = ::mapPath,
+        postInstall = { staging -> fixGemPaths(File(staging, "msf"), File(staging, "ruby")) },
+        sentinels = listOf("ruby/bin/ruby", "msf/msfconsole"),
+    )
 
     private fun mapPath(archivePath: String): String? = when {
         archivePath.startsWith("ruby-android/") -> "ruby/" + archivePath.removePrefix("ruby-android/")
@@ -108,179 +47,85 @@ class RubyExtractor @Inject constructor() {
         else -> null
     }
 
-    /**
-     * Fix gem extension paths after extraction.
-     * All paths are discovered from the filesystem — no hardcoded versions.
-     */
-    private fun fixGemPaths(msfPath: String, rubyPath: String) {
-        try {
-            // Discover ruby API version from lib/ruby/<version>/ directory
-            val rubyLibDir = File(rubyPath, "lib/ruby")
-            val rubyApiVersion = rubyLibDir.listFiles()
-                ?.firstOrNull { it.isDirectory && it.name.matches(Regex("\\d+\\.\\d+\\.\\d+")) }
-                ?.name
-            if (rubyApiVersion == null) {
-                Logger.warning("RubyExtractor: cannot detect ruby API version in $rubyLibDir")
-                return
+    /** Fix gem extension paths; all versions are discovered from the tree. Throws on failure. */
+    private fun fixGemPaths(msfDir: File, rubyDir: File) {
+        val rubyApiVersion = detectRubyApiVersion(rubyDir)
+            ?: throw IllegalStateException("cannot detect ruby API version in $rubyDir/lib/ruby")
+        Logger.info("RubyExtractor: detected ruby API version $rubyApiVersion")
+        val rubyMajorMinor = rubyApiVersion.split(".").take(2).joinToString(".")
+
+        val bundleRubyDir = File(msfDir, "vendor/bundle/ruby/$rubyApiVersion")
+        fixExtensionSymlinks(File(bundleRubyDir, "extensions"))
+        fixExtensionSymlinks(File(rubyDir, "lib/ruby/gems/$rubyApiVersion/extensions"))
+
+        val gems = File(bundleRubyDir, "gems").listFiles()?.filter { it.isDirectory }.orEmpty()
+
+        // Nokogiri loads lib/nokogiri/<major.minor>/nokogiri.so
+        gems.newestWithPrefix("nokogiri-")?.let { nokogiriGem ->
+            val nokogiriLib = File(nokogiriGem, "lib/nokogiri")
+            if (nokogiriLib.exists()) {
+                val versionDir = File(nokogiriLib, rubyMajorMinor)
+                versionDir.mkdirs()
+                createSymlink(File(versionDir, "nokogiri.so"), "../nokogiri.so")
+                Logger.info("RubyExtractor: fixed nokogiri $rubyMajorMinor/ symlink")
             }
-            Logger.info("RubyExtractor: detected ruby API version $rubyApiVersion")
-
-            // Major.minor for gem subdirectory lookups (e.g. "3.3")
-            val rubyMajorMinor = rubyApiVersion.split(".").take(2).joinToString(".")
-
-            // Fix extensions: symlink aarch64-linux → aarch64-linux-android-android
-            // and <version>-static → <version> in all extension dirs
-            val bundleRubyDir = File(msfPath, "vendor/bundle/ruby/$rubyApiVersion")
-            fixExtensionSymlinks(File(bundleRubyDir, "extensions"))
-            fixExtensionSymlinks(File(rubyPath, "lib/ruby/gems/$rubyApiVersion/extensions"))
-
-            // Fix Nokogiri: find the nokogiri gem dir and create version subdir symlink
-            val gemsDir = File(bundleRubyDir, "gems")
-            gemsDir.listFiles()
-                ?.firstOrNull { it.isDirectory && it.name.startsWith("nokogiri-") }
-                ?.let { nokogiriGem ->
-                    val nokogiriLib = File(nokogiriGem, "lib/nokogiri")
-                    val versionDir = File(nokogiriLib, rubyMajorMinor)
-                    if (nokogiriLib.exists() && !versionDir.exists()) {
-                        versionDir.mkdirs()
-                        createSymlinkSafe(File(versionDir, "nokogiri.so"), "../nokogiri.so")
-                        Logger.info("RubyExtractor: fixed nokogiri $rubyMajorMinor/ symlink")
-                    }
-                }
-
-            // Fix JSON: copy vendor json lib over stdlib if vendor version exists
-            gemsDir.listFiles()
-                ?.firstOrNull { it.isDirectory && it.name.startsWith("json-") }
-                ?.let { jsonGem ->
-                    val vendorJsonLib = File(jsonGem, "lib/json")
-                    val stdlibJsonDir = File(rubyPath, "lib/ruby/$rubyApiVersion/json")
-                    if (vendorJsonLib.exists() && stdlibJsonDir.exists()) {
-                        vendorJsonLib.listFiles()
-                            ?.filter { it.isFile && it.name.endsWith(".rb") }
-                            ?.forEach { src ->
-                                val dst = File(stdlibJsonDir, src.name)
-                                src.copyTo(dst, overwrite = true)
-                            }
-                        Logger.info("RubyExtractor: patched stdlib json with vendor ${jsonGem.name}")
-                    }
-                }
-
-            createMsfrpcdScript(msfPath)
-        } catch (e: Exception) {
-            Logger.error("RubyExtractor: fixGemPaths failed: ${e.message}")
         }
+
+        // Vendor json gem overrides the stdlib one
+        gems.newestWithPrefix("json-")?.let { jsonGem ->
+            val vendorJsonLib = File(jsonGem, "lib/json")
+            val stdlibJsonDir = File(rubyDir, "lib/ruby/$rubyApiVersion/json")
+            if (vendorJsonLib.exists() && stdlibJsonDir.exists()) {
+                vendorJsonLib.listFiles()
+                    ?.filter { it.isFile && it.name.endsWith(".rb") }
+                    ?.forEach { src -> src.copyTo(File(stdlibJsonDir, src.name), overwrite = true) }
+                Logger.info("RubyExtractor: patched stdlib json with vendor ${jsonGem.name}")
+            }
+        }
+
+        File(msfDir, "msfrpcd").apply {
+            writeText(MsfrpcdScript.CONTENT)
+            setExecutable(true, false)
+        }
+        Logger.info("RubyExtractor: wrote msfrpcd compatibility script")
     }
 
-    private fun createMsfrpcdScript(msfPath: String) {
-        val script = File(msfPath, "msfrpcd")
-        if (script.exists()) return
-
-        script.writeText(
-            """
-            |#!/usr/bin/env ruby
-            |# msfrpcd - MSF RPC Daemon (compatibility wrapper for MSF 6.x)
-            |
-            |msfbase = __FILE__
-            |while File.symlink?(msfbase)
-            |  msfbase = File.expand_path(File.readlink(msfbase), File.dirname(msfbase))
-            |end
-            |
-            |${'$'}:.unshift(File.expand_path(File.join(File.dirname(msfbase), 'lib')))
-            |require 'msfenv'
-            |
-            |opts = {
-            |  'ServerHost' => '0.0.0.0',
-            |  'ServerPort' => 55553,
-            |  'User' => 'msf',
-            |  'Pass' => 'msf',
-            |  'SSL' => true,
-            |}
-            |
-            |i = 0
-            |while i < ARGV.length
-            |  case ARGV[i]
-            |  when '-a' then i += 1; opts['ServerHost'] = ARGV[i]
-            |  when '-p' then i += 1; opts['ServerPort'] = ARGV[i].to_i
-            |  when '-U' then i += 1; opts['User'] = ARGV[i]
-            |  when '-P' then i += 1; opts['Pass'] = ARGV[i]
-            |  when '-S' then opts['SSL'] = false
-            |  end
-            |  i += 1
-            |end
-            |
-            |${'$'}0 = 'msfrpcd'
-            |${'$'}stderr.puts "[*] MSGRPC starting on #{opts['ServerPort']} (#{opts['SSL'] ? 'SSL' : 'NO SSL'})..."
-            |${'$'}stderr.flush
-            |
-            |framework = Msf::Simple::Framework.create
-            |framework.plugins.load('msgrpc', opts)
-            |
-            |${'$'}stderr.puts "[*] MSGRPC ready at #{opts['ServerHost']}:#{opts['ServerPort']}"
-            |${'$'}stderr.flush
-            |
-            |begin
-            |  while true
-            |    sleep 60
-            |  end
-            |rescue Interrupt, SignalException
-            |  ${'$'}stderr.puts "[*] Shutting down msfrpcd..."
-            |end
-            """.trimMargin()
-        )
-        script.setExecutable(true, false)
-        Logger.info("RubyExtractor: created msfrpcd compatibility script")
-    }
+    private fun List<File>.newestWithPrefix(prefix: String): File? =
+        filter { it.name.startsWith(prefix) }
+            .maxWithOrNull { a, b -> BundleVersions.compareVersions(a.name.removePrefix(prefix), b.name.removePrefix(prefix)) }
 
     /**
-     * Fix extension directory symlinks.
-     * Discovers platform dirs (e.g. aarch64-linux-android-android) and creates:
-     * - aarch64-linux → <actual platform dir> (short name symlink)
-     * - <version>-static → <version> (bundler compatibility)
+     * In an extension dir, link `aarch64-linux` → the android platform dir
+     * (e.g. `aarch64-linux-android-android`) and `<ver>-static` → `<ver>`.
      */
     private fun fixExtensionSymlinks(extDir: File) {
         if (!extDir.exists()) return
-
-        // Find the android platform directory
         val androidPlatformDir = extDir.listFiles()
-            ?.firstOrNull { it.isDirectory && it.name.contains("android") }
+            ?.filter { it.isDirectory && !Files.isSymbolicLink(it.toPath()) && it.name.contains("android") }
+            ?.maxByOrNull { it.name }
             ?: return
 
-        // Create short symlink: aarch64-linux → aarch64-linux-android-android
         val shortName = androidPlatformDir.name.substringBefore("-android-android")
         if (shortName != androidPlatformDir.name) {
-            createSymlinkSafe(File(extDir, shortName), androidPlatformDir.name)
+            createSymlink(File(extDir, shortName), androidPlatformDir.name)
         }
 
-        // Inside the platform dir, create <ver>-static → <ver> symlinks
         androidPlatformDir.listFiles()
-            ?.filter { it.isDirectory && !it.name.contains("-static") }
+            ?.filter { it.isDirectory && !Files.isSymbolicLink(it.toPath()) && !it.name.contains("-static") }
             ?.forEach { versionDir ->
-                val staticName = "${versionDir.name}-static"
-                val staticDir = File(androidPlatformDir, staticName)
-                if (!staticDir.exists()) {
-                    createSymlinkSafe(staticDir, versionDir.name)
-                }
+                val staticDir = File(androidPlatformDir, "${versionDir.name}-static")
+                if (!staticDir.exists()) createSymlink(staticDir, versionDir.name)
             }
     }
 
-    private fun createSymlinkSafe(linkFile: File, target: String) {
-        deletePathSafe(linkFile)
-        try {
-            Files.createSymbolicLink(linkFile.toPath(), Paths.get(target))
-        } catch (e: Exception) {
-            Logger.warning("RubyExtractor: symlink failed: ${linkFile.name} -> $target: ${e.message}")
-        }
-    }
-
-    private fun deletePathSafe(fileOrDir: File) {
-        if (!fileOrDir.exists() && !Files.isSymbolicLink(fileOrDir.toPath())) return
-        if (Files.isSymbolicLink(fileOrDir.toPath())) {
-            fileOrDir.delete()
+    private fun createSymlink(linkFile: File, target: String) {
+        val p = linkFile.toPath()
+        if (!Files.isSymbolicLink(p) && linkFile.isDirectory) {
+            // The bundle already ships a real directory here: nothing to alias.
+            Logger.info("RubyExtractor: ${linkFile.name} is a real directory, keeping it")
             return
         }
-        if (fileOrDir.isDirectory) {
-            fileOrDir.listFiles()?.forEach { deletePathSafe(it) }
-        }
-        fileOrDir.delete()
+        if (Files.isSymbolicLink(p) || linkFile.isFile) Files.delete(p)
+        Files.createSymbolicLink(p, Paths.get(target))
     }
 }

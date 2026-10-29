@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.csploit.strix.data.DaemonState
+import org.csploit.strix.ui.bundles.BundleUpdateCard
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,9 +61,11 @@ fun MsfScreen(
     val uiState by viewModel.uiState.collectAsState()
     val daemonState by viewModel.daemonState.collectAsState()
     val logs by viewModel.daemonLogs.collectAsState()
+    val bundleState by viewModel.bundleState.collectAsState()
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.surface)
             TopAppBar(
                 title = { Text("Metasploit") },
                 navigationIcon = {
@@ -82,6 +86,18 @@ fun MsfScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Download / update of the Metasploit bundle
+            item {
+                BundleUpdateCard(
+                    state = bundleState,
+                    notInstalledHint = "Metasploit is downloaded separately from the app (≈375 MB, needs ≈1.3 GB free while installing).",
+                    onDownload = viewModel::downloadMsf,
+                    onCancel = viewModel::cancelBundleOp,
+                    onApply = viewModel::applyPendingUpdate,
+                    onDismiss = viewModel::dismissBundleMessage,
+                )
+            }
+
             // Status Card
             item {
                 DaemonStatusCard(

@@ -1,11 +1,13 @@
 package org.csploit.strix.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
+import org.csploit.strix.core.shellQuote
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,22 +42,22 @@ class PacketCaptureRunner @Inject constructor(
 
     /** Capture tcpdump output; publishes log lines and packet count into [sessions]. */
     suspend fun capture(key: String, filter: String = "", verbose: Boolean = false) {
-        val net = networkManager.detectNetwork()
-            ?: error("No WiFi network detected")
-
-        val command = buildCommand(net.interfaceName, filter, verbose)
-        Logger.info("PacketCaptureRunner: $command")
-
-        updateSession(key) {
-            PacketCaptureSession(
-                key = key,
-                filter = filter,
-                verbose = verbose,
-                iface = net.interfaceName,
-                isRunning = true,
-            )
-        }
         try {
+            val net = networkManager.detectNetwork()
+                ?: error("No WiFi network detected")
+
+            val command = buildCommand(net.interfaceName, filter, verbose)
+            Logger.info("PacketCaptureRunner: $command")
+
+            updateSession(key) {
+                PacketCaptureSession(
+                    key = key,
+                    filter = filter,
+                    verbose = verbose,
+                    iface = net.interfaceName,
+                    isRunning = true,
+                )
+            }
             processManager.execute(
                 command = command,
                 toolsDir = toolManager.toolsPath,
@@ -73,6 +75,11 @@ class PacketCaptureRunner @Inject constructor(
                     is ProcessEvent.Killed -> appendLog(key, "[killed: signal ${event.signal}]")
                 }
             }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            appendLog(key, "[error: ${e.message ?: e.javaClass.simpleName}]")
+            throw e
         } finally {
             updateSession(key) { it.copy(isRunning = false) }
         }
@@ -86,11 +93,13 @@ class PacketCaptureRunner @Inject constructor(
     }
 
     private fun buildCommand(iface: String, filter: String, verbose: Boolean): String = buildString {
-        append("tcpdump -i ").append(iface)
+        append("tcpdump -i ").append(shellQuote(iface))
         append(" -n -l")
         if (verbose) append(" -v")
         if (filter.isNotBlank()) {
-            append(" ").append(filter.trim())
+            // The whole BPF expression is one word: tcpdump parses it itself, the
+            // shell must not see its ( ) > & etc.
+            append(" ").append(shellQuote(filter.trim()))
         }
     }
 

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.csploit.strix.domain.model.TracerouteHop
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +44,7 @@ fun TracerouteScreen(
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = {
                     Column {
@@ -71,6 +73,9 @@ fun TracerouteScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },

@@ -11,6 +11,7 @@ import org.csploit.strix.core.Logger
 import org.csploit.strix.core.RootChecker
 import org.csploit.strix.data.NetworkManager
 import org.csploit.strix.data.ToolManager
+import org.csploit.strix.data.bundle.BundleUpdateManager
 import org.csploit.strix.domain.model.ExtractionState
 import org.csploit.strix.domain.model.NetworkInfo
 import javax.inject.Inject
@@ -37,6 +38,7 @@ class SplashViewModel @Inject constructor(
     private val rootChecker: RootChecker,
     private val toolManager: ToolManager,
     private val networkManager: NetworkManager,
+    private val bundleUpdates: BundleUpdateManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SplashUiState())
@@ -84,21 +86,10 @@ class SplashViewModel @Inject constructor(
                 return@launch
             }
 
-            // Step 2b: Extract Ruby+MSF (non-blocking, only if asset exists)
-            if (!toolManager.isMsfInstalled()) {
-                val rubyJob = launch {
-                    toolManager.state.collect { state ->
-                        _uiState.value = _uiState.value.copy(extractionState = state)
-                    }
-                }
-                toolManager.extractRuby()
-                rubyJob.cancel()
-                // Ruby extraction failure is non-fatal — network tools work without MSF
-                val rubyResult = toolManager.state.value
-                if (rubyResult is ExtractionState.Error) {
-                    Logger.warning("Ruby/MSF extraction failed (non-fatal): ${rubyResult.message}")
-                }
-            }
+            // Metasploit is downloaded on demand (Metasploit screen); both bundles
+            // can be updated at runtime. Only look (at most daily) for newer ones.
+            bundleUpdates.refreshInstalled()
+            bundleUpdates.autoCheckIfDue()
 
             // Step 3: Detect network
             _uiState.value = _uiState.value.copy(step = StartupStep.DETECTING_NETWORK)
@@ -117,7 +108,7 @@ class SplashViewModel @Inject constructor(
                 networkInfo = networkInfo,
             )
 
-            Logger.info("Startup complete: ${networkInfo.ssid} (${networkInfo.localIp})")
+            Logger.info("Startup complete: ssid=${networkInfo.ssid}, ip=${networkInfo.localIp}")
         }
     }
 }

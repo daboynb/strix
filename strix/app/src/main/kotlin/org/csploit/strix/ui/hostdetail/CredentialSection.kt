@@ -34,16 +34,20 @@ fun CredentialSection(
     onTest: () -> Unit,
     onStop: () -> Unit,
 ) {
+    // Keep container/content pairs matched (dynamic palettes can invert them).
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when {
+        credsResult != null -> colors.errorContainer to colors.onErrorContainer
+        credsTested -> colors.secondaryContainer to colors.onSecondaryContainer
+        else -> colors.surfaceVariant to colors.onSurfaceVariant
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when {
-                credsResult != null -> MaterialTheme.colorScheme.errorContainer
-                credsTested -> MaterialTheme.colorScheme.secondaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -53,11 +57,11 @@ fun CredentialSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+                        CircularProgressIndicator(modifier = Modifier.padding(4.dp), color = contentColor)
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Testing credentials (hydra)...")
                             hydraStatus?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = contentColor)
                             }
                         }
                         IconButton(onClick = onStop) {
@@ -70,9 +74,9 @@ fun CredentialSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Default.LockOpen, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.LockOpen, contentDescription = null, tint = contentColor)
                         Column {
-                            Text("Default credentials found!", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                            Text("Default credentials found!", style = MaterialTheme.typography.titleSmall, color = contentColor)
                             Text("${credsResult.username}:${credsResult.password} (${credsResult.service})", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
@@ -82,7 +86,7 @@ fun CredentialSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = contentColor)
                         Text("No default credentials found")
                     }
                 }

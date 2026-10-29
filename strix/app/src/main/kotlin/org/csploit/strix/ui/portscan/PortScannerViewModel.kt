@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,11 +37,12 @@ data class PortScannerUiState(
     val hydraStatus: String? = null,
 )
 
-/** State owned by the VM (not by the singleton runner). Fingerprint/creds are
- *  side-operations that run in [viewModelScope] and do not survive navigation. */
+/** State owned by the VM (not by the singleton runner). The credential test is
+ *  a side-operation that runs in [viewModelScope] and does not survive navigation;
+ *  the fingerprint is stored in the [PortScanSession] by the scan task. */
 private data class LocalUiState(
     val isTesting: Boolean = false,
-    val fingerprint: HttpFingerprintResult? = null,
+    val inputError: String? = null,
     val credsResult: DefaultCreds? = null,
     val credsTested: Boolean = false,
     val hydraStatus: String? = null,
@@ -72,8 +74,8 @@ class PortScannerViewModel @Inject constructor(
             ports = session?.ports ?: emptyList(),
             os = session?.os,
             progress = session?.progress,
-            error = session?.error,
-            fingerprint = local.fingerprint,
+            error = local.inputError ?: session?.error,
+            fingerprint = session?.fingerprint,
             credsResult = local.credsResult,
             credsTested = local.credsTested,
             hydraStatus = local.hydraStatus,
@@ -85,20 +87,33 @@ class PortScannerViewModel @Inject constructor(
 
     fun setPortRange(range: String) {
         portRange = range
+        if (_localState.value.inputError != null) {
+            _localState.value = _localState.value.copy(inputError = null)
+        }
     }
 
     fun startScan() {
+        val range = if (portRange.isBlank()) {
+            null
+        } else {
+            PortScanner.normalizePortRange(portRange) ?: run {
+                _localState.value = _localState.value.copy(
+                    inputError = "Invalid port range '$portRange' (use e.g. 80,443 or 1-1024)",
+                )
+                return
+            }
+        }
         scanJob?.cancel()
-        _localState.value = LocalUiState()  // reset fingerprint/creds for the new run
+        _localState.value = LocalUiState()  // reset creds/errors for the new run
         portScanner.clear(ip)
-        Logger.info("PortScannerVM: startScan ip=$ip range='${portRange.ifBlank { "default" }}'")
+        Logger.info("PortScannerVM: startScan ip=$ip range='${range ?: "default"}'")
 
         scanJob = scanRegistry.launch(
             id = "portscan:$ip",
             label = "Port scan $ip",
             deepLink = Routes.deepLinkPortScanner(ip),
         ) {
-            portScanner.scan(ip, portRange.ifBlank { null })
+            portScanner.scan(ip, range)
             // Natural completion: nmap exited on its own. Cancelled runs throw
             // CancellationException and never reach here.
             val session = portScanner.sessionOf(ip)
@@ -128,7 +143,7 @@ class PortScannerViewModel @Inject constructor(
     }
 
     fun testCredentials() {
-        val fp = _localState.value.fingerprint ?: return
+        val fp = portScanner.sessionOf(ip)?.fingerprint ?: return
         val adminUrl = fp.adminUrl ?: return
 
         credJob?.cancel()
@@ -157,12 +172,16 @@ class PortScannerViewModel @Inject constructor(
         _localState.value = _localState.value.copy(isTesting = false)
     }
 
-    private fun fingerprint(ports: List<Int>) {
-        // Runs in the registry's appScope block (outer scanJob coroutine) so it
-        // survives VM destruction alongside the scan completion.
-        viewModelScope.launch {
-            val result = routerAnalyzer.httpProbe.fingerprint(ip, ports)
-            _localState.value = _localState.value.copy(fingerprint = result)
+    private suspend fun fingerprint(ports: List<Int>) {
+        // Called from the registry's appScope block (part of the scan task) so it
+        // survives VM destruction; the result goes to the runner's session.
+        try {
+            portScanner.setFingerprint(ip, routerAnalyzer.httpProbe.fingerprint(ip, ports))
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            // Optional post-scan step: a failure must not fail the scan task.
+            Logger.warning("PortScannerVM: fingerprint failed ip=$ip: ${e.message}")
         }
     }
 

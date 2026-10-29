@@ -12,5 +12,5 @@ class RouterAnalyzer @Inject constructor(
     val httpProbe: HttpProbe,
     val credentialTester: CredentialTester,
 ) {
-    fun identifyManufacturer(mac: String?): String? = ouiLookup.identify(mac)
+    suspend fun identifyManufacturer(mac: String?): String? = ouiLookup.identify(mac)
 }

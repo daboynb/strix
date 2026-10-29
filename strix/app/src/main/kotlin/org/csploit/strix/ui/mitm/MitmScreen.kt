@@ -56,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.csploit.strix.data.DnsEntry
 import org.csploit.strix.data.MitmMode
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,7 @@ fun MitmScreen(
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = {
                     Column {
@@ -108,6 +110,9 @@ fun MitmScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },
@@ -168,7 +173,7 @@ fun MitmScreen(
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.errorContainer)
                         .padding(12.dp),
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -225,6 +230,7 @@ private fun CredentialCard(cred: CapturedCredential) {
             .padding(horizontal = 12.dp, vertical = 3.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
         ),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -236,7 +242,7 @@ private fun CredentialCard(cred: CapturedCredential) {
                     cred.protocol,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -293,7 +299,7 @@ private fun CredentialCard(cred: CapturedCredential) {
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         }

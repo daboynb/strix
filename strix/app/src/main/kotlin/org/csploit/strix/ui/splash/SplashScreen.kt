@@ -24,6 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -54,10 +57,19 @@ fun SplashScreen(
         viewModel.onPermissionsGranted()
     }
 
-    // Request permissions on first composition
+    // Single batched request on first composition: notification, location and
+    // nearby-Wi-Fi together (MainActivity no longer issues its own request,
+    // which used to make this one get dropped). Saveable so a configuration
+    // change doesn't fire a second request while the dialog is showing.
+    var permissionsRequested by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
+        if (permissionsRequested) return@LaunchedEffect
+        permissionsRequested = true
         val permissions = buildList {
+            // targetSdk 31+: FINE must be requested together with COARSE,
+            // otherwise the system ignores the request.
             add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
                 add(Manifest.permission.NEARBY_WIFI_DEVICES)

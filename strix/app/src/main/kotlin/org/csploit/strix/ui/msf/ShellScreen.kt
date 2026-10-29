@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -30,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -50,6 +54,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +83,7 @@ fun ShellScreen(
 
     Scaffold(
         topBar = {
+            StatusBarIcons(TerminalBar)
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
@@ -85,19 +91,31 @@ fun ShellScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
+                // Fixed terminal-dark bar: content colors must be light in
+                // both themes, not the theme's onSurface.
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1A1A2E),
+                    containerColor = TerminalBar,
+                    titleContentColor = TerminalText,
+                    navigationIconContentColor = TerminalText,
+                    actionIconContentColor = TerminalText,
                 ),
             )
         },
-        containerColor = Color(0xFF0D0D1A),
+        containerColor = TerminalBackground,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (uiState.kind == SessionKind.METERPRETER) {
+            uiState.error?.let { message ->
+                ErrorBanner(
+                    message = message,
+                    onDismiss = if (uiState.sessionClosed) null else viewModel::clearError,
+                )
+            }
+
+            if (uiState.kind == SessionKind.METERPRETER && !uiState.sessionClosed) {
                 MeterpreterQuickActions(
                     onAction = { cmd, prefill ->
                         if (prefill) viewModel.updateInput("$cmd ") else viewModel.send(cmd)
@@ -121,7 +139,8 @@ fun ShellScreen(
                 items(uiState.output) { line ->
                     val color = when {
                         line.startsWith("$") -> Color(0xFF4FC3F7)
-                        line.startsWith("[read error") -> Color(0xFFEF5350)
+                        line.startsWith("[read error") -> TerminalError
+                        line.startsWith("[session ") -> TerminalError
                         line.startsWith("[") -> Color(0xFFFFB74D)
                         else -> Color(0xFFE0E0E0)
                     }
@@ -144,20 +163,39 @@ fun ShellScreen(
                     value = uiState.input,
                     onValueChange = viewModel::updateInput,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("command...") },
+                    enabled = !uiState.sessionClosed,
+                    placeholder = {
+                        Text(if (uiState.sessionClosed) "session closed" else "command...")
+                    },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace,
-                        color = Color(0xFFE0E0E0),
+                    ),
+                    // Sits on the fixed dark background: theme defaults
+                    // (onSurface/onSurfaceVariant) are unreadable in light theme.
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TerminalText,
+                        unfocusedTextColor = TerminalText,
+                        disabledTextColor = TerminalMuted,
+                        focusedPlaceholderColor = TerminalMuted,
+                        unfocusedPlaceholderColor = TerminalMuted,
+                        disabledPlaceholderColor = TerminalMuted,
+                        cursorColor = TerminalAccent,
+                        focusedBorderColor = TerminalAccent,
+                        unfocusedBorderColor = TerminalMuted,
+                        disabledBorderColor = TerminalMuted.copy(alpha = 0.4f),
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { viewModel.sendCommand() }),
                 )
-                IconButton(onClick = viewModel::sendCommand) {
+                IconButton(
+                    onClick = viewModel::sendCommand,
+                    enabled = !uiState.sessionClosed,
+                ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
                         "Send",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (uiState.sessionClosed) TerminalMuted else TerminalAccent,
                     )
                 }
             }
@@ -179,6 +217,36 @@ fun ShellScreen(
             onDismiss = viewModel::dismissDialog,
         )
         null -> {}
+    }
+}
+
+private val TerminalBar = Color(0xFF1A1A2E)
+private val TerminalBackground = Color(0xFF0D0D1A)
+private val TerminalText = Color(0xFFE0E0E0)
+private val TerminalMuted = Color(0xFF9E9EB0)
+private val TerminalAccent = Color(0xFF4FC3F7)
+private val TerminalError = Color(0xFFEF5350)
+
+@Composable
+private fun ErrorBanner(message: String, onDismiss: (() -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TerminalError.copy(alpha = 0.18f))
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            message,
+            modifier = Modifier.weight(1f),
+            color = TerminalText,
+            fontSize = 12.sp,
+        )
+        if (onDismiss != null) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, "Dismiss", tint = TerminalText)
+            }
+        }
     }
 }
 

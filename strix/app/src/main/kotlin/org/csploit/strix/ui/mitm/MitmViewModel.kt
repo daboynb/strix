@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -66,8 +67,18 @@ class MitmViewModel @Inject constructor(
 
     private val _local: MutableStateFlow<LocalState>
     private var lastFtpUser: String? = null
-    private var arpSpoofJob: Job? = null
-    private var snifferJob: Job? = null
+
+    // All MITM coroutines run in ScanRegistry.appScope so setup, teardown and
+    // cleanup outlive the ViewModel (Stop then immediate back must not cut
+    // iptables/ip_forward restoration). The arpspoof/sniffer tasks are owned by
+    // ScanRegistry (cancelled by id); setup/kill jobs are tracked here.
+    private var setupJob: Job? = null
+    private var killJob: Job? = null
+
+    // Set while a teardown is in flight so the process collectors don't mistake
+    // our own cancellation for an unexpected exit and trigger a second teardown.
+    @Volatile
+    private var tearingDown = false
 
     init {
         val net = networkManager.detectNetwork()
@@ -142,19 +153,29 @@ class MitmViewModel @Inject constructor(
         stopAll()
         store.resetForNewRun(ip, local.mode)
         _local.value = local.copy(localError = null)
+        tearingDown = false
+        val mode = local.mode
+        // Stop-then-immediately-Start: the previous run's cleanup must finish
+        // before our setup, or it would revert the rules we are about to apply.
+        val pendingTeardown = store.teardownOf(ip)
 
-        // 1. Setup: each command as separate su -c call (mode-aware)
-        viewModelScope.launch {
+        // Setup runs in appScope and is tracked as setupJob so Stop can cancel
+        // it mid-sequence — before this fix the ~8 su setup commands (and then
+        // arpspoof/tcpdump) kept running after Stop. On cancel/failure we revert
+        // whatever setup already applied.
+        setupJob = scanRegistry.appScope.launch {
             try {
-                for (cmd in mitmRunner.getSetupCommands(local.mode)) {
-                    store.appendLog(ip, "[+] $cmd")
-                    mitmRunner.exec(cmd).collect {}
-                }
+                pendingTeardown?.join()
+                mitmRunner.setup(mode) { store.appendLog(ip, it) }
                 store.appendLog(ip, "[+] Setup complete — starting MITM")
-                startMitmProcesses(local.mode, validDns)
+                startMitmProcesses(mode, validDns)
+            } catch (ce: CancellationException) {
+                // Stop landed during setup: teardownMode() will run cleanup.
+                throw ce
             } catch (e: Exception) {
                 store.appendLog(ip, "[!] Setup error: ${e.message}")
-                store.setRunning(ip, local.mode, false)
+                store.setRunning(ip, mode, false)
+                teardownMode(mode, wasKilled = false)
             }
         }
     }
@@ -164,7 +185,7 @@ class MitmViewModel @Inject constructor(
         // broken on Android, so we always rely on the external arpspoof to
         // route the victim's traffic through us, and let ettercap run as a
         // passive sniffer + dns_spoof plugin.
-        arpSpoofJob = scanRegistry.launch(
+        scanRegistry.launch(
             id = "mitm-arp:$ip",
             label = "ARP spoof $ip",
             deepLink = Routes.deepLinkMitm(ip, mac ?: "", mode.name),
@@ -178,16 +199,21 @@ class MitmViewModel @Inject constructor(
                             if (event.line.contains("couldn't") || event.line.contains("error"))
                                 store.appendLog(ip, "[arpspoof] ${event.line}")
                         }
-                        is ProcessEvent.Exited -> store.appendLog(ip, "[arpspoof exited: ${event.code}]")
+                        is ProcessEvent.Exited -> {
+                            store.appendLog(ip, "[arpspoof exited: ${event.code}]")
+                            onProcessDied(mode, "arpspoof")
+                        }
                         is ProcessEvent.Killed -> store.appendLog(ip, "[arpspoof stopped]")
                     }
                 }
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (_: Exception) {}
         }
 
         when (mode) {
             MitmMode.SNIFFER -> {
-                snifferJob = scanRegistry.launch(
+                scanRegistry.launch(
                     id = "mitm-sniff:$ip",
                     label = "Credential sniffer $ip",
                     deepLink = Routes.deepLinkMitm(ip, mac ?: "", mode.name),
@@ -208,10 +234,15 @@ class MitmViewModel @Inject constructor(
                                         store.appendLog(ip, "[sniffer] ${event.line}")
                                     }
                                 }
-                                is ProcessEvent.Exited -> store.appendLog(ip, "[sniffer exited: ${event.code}]")
+                                is ProcessEvent.Exited -> {
+                                    store.appendLog(ip, "[sniffer exited: ${event.code}]")
+                                    onProcessDied(mode, "sniffer")
+                                }
                                 is ProcessEvent.Killed -> store.appendLog(ip, "[sniffer killed]")
                             }
                         }
+                    } catch (ce: CancellationException) {
+                        throw ce
                     } catch (e: Exception) {
                         store.appendLog(ip, "[sniffer error: ${e.message}]")
                     }
@@ -224,17 +255,32 @@ class MitmViewModel @Inject constructor(
             MitmMode.KILL -> {
                 // arpspoof routes victim's traffic through us; the kill rules
                 // drop/RST every forwarded packet so the victim loses
-                // connectivity until we stop.
-                viewModelScope.launch {
-                    for (cmd in mitmRunner.getKillCommands(ip, enable = true)) {
-                        store.appendLog(ip, "[+] $cmd")
-                        mitmRunner.exec(cmd).collect {}
-                    }
+                // connectivity until we stop. Tracked as killJob and run in
+                // appScope so Stop can cancel it — and so teardown can wait for
+                // it before removing the rules (otherwise a Stop that lands
+                // mid-apply would leave rules in place, victim offline forever).
+                killJob = scanRegistry.appScope.launch {
+                    mitmRunner.applyKillRules(ip) { store.appendLog(ip, it) }
                     store.setKillActive(ip, true)
                     store.appendLog(ip, "[!] connection killed")
                 }
             }
         }
+    }
+
+    /**
+     * A MITM subprocess terminated on its own (not via our Stop). Reflect the
+     * real state and tear the rest down + clean up, unless a teardown is
+     * already running (in which case this death is our own doing).
+     */
+    private fun onProcessDied(mode: MitmMode, which: String) {
+        if (tearingDown) return
+        if (store.sessionOf(ip)?.isRunning != true) return
+        store.appendLog(ip, "[!] $which stopped — ending MITM")
+        val wasKilled = store.sessionOf(ip)?.killActive ?: false
+        store.setRunning(ip, mode, false)
+        store.setKillActive(ip, false)
+        teardownMode(mode, wasKilled)
     }
 
     fun stop() {
@@ -255,25 +301,34 @@ class MitmViewModel @Inject constructor(
      * share the single per-host arpspoof job + session.
      */
     private fun teardownMode(mode: MitmMode, wasKilled: Boolean) {
-        stopAll()
-        viewModelScope.launch {
-            if (wasKilled) {
-                for (cmd in mitmRunner.getKillCommands(ip, enable = false)) {
-                    mitmRunner.exec(cmd).collect {}
-                }
-            }
-            for (cmd in mitmRunner.getCleanupCommands(mode)) {
-                mitmRunner.exec(cmd).collect {}
-            }
+        tearingDown = true
+        val pending = stopAll()
+        // Cleanup runs in appScope (not viewModelScope) so Stop-then-back can't
+        // cancel it half-way; MitmRunner.cleanup/removeKillRules are themselves
+        // NonCancellable. We join the cancelled setup/kill jobs first so their
+        // partial su commands have stopped before we revert them.
+        val previousTeardown = store.teardownOf(ip)
+        val job = scanRegistry.appScope.launch {
+            previousTeardown?.join()
+            pending.forEach { runCatching { it.join() } }
+            if (wasKilled) mitmRunner.removeKillRules(ip)
+            mitmRunner.cleanup(mode)
+            tearingDown = false
         }
+        store.setTeardown(ip, job)
     }
 
-    private fun stopAll() {
+    /** Cancel every running MITM coroutine. Returns the local jobs to join. */
+    private fun stopAll(): List<Job> {
         scanRegistry.cancel("mitm-arp:$ip")
-        arpSpoofJob = null
         scanRegistry.cancel("mitm-sniff:$ip")
-        snifferJob = null
         dnsSpoofServer.stop()
+        val jobs = listOfNotNull(setupJob, killJob)
+        setupJob?.cancel()
+        setupJob = null
+        killJob?.cancel()
+        killJob = null
+        return jobs
     }
 
     fun clearError() {
@@ -334,7 +389,7 @@ class MitmViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // arpSpoofJob/snifferJob live in ScanRegistry.appScope and survive VM destruction
+        // The arpspoof/sniffer tasks live in ScanRegistry.appScope and survive VM destruction
         // so the attack continues while the user navigates around. DnsSpoofServer already
         // uses its own singleton scope. Call stop() explicitly from the UI to end.
     }

@@ -1,8 +1,11 @@
 package org.csploit.strix.data
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,8 +42,22 @@ class MitmSessionStore @Inject constructor() {
 
     fun sessionOf(ip: String): MitmSession? = _sessions.value[ip]
 
+    /**
+     * In-flight teardown (kill-rule removal + iptables/sysctl cleanup) per host.
+     * Lives here, not in the ViewModel, so a Start issued from a new VM instance
+     * still waits for the cleanup started by the previous one.
+     */
+    private val teardowns = ConcurrentHashMap<String, Job>()
+
+    fun setTeardown(ip: String, job: Job) {
+        teardowns[ip] = job
+        job.invokeOnCompletion { teardowns.remove(ip, job) }
+    }
+
+    fun teardownOf(ip: String): Job? = teardowns[ip]
+
     fun clear(ip: String) {
-        _sessions.value = _sessions.value - ip
+        _sessions.update { it - ip }
     }
 
     fun setRunning(ip: String, mode: MitmMode, running: Boolean) {
@@ -62,6 +79,8 @@ class MitmSessionStore @Inject constructor() {
     fun addCredential(ip: String, cred: MitmCapturedCredential): Boolean {
         var added = false
         update(ip) { s ->
+            // Reset on every attempt: update {} may re-run the lambda on contention.
+            added = false
             if (s.credentials.any { it.user == cred.user && it.pass == cred.pass && it.protocol == cred.protocol }) {
                 s
             } else {
@@ -77,12 +96,14 @@ class MitmSessionStore @Inject constructor() {
     }
 
     fun resetForNewRun(ip: String, mode: MitmMode) {
-        _sessions.value = _sessions.value + (ip to MitmSession(ip = ip, mode = mode, isRunning = true))
+        _sessions.update { it + (ip to MitmSession(ip = ip, mode = mode, isRunning = true)) }
     }
 
-    private inline fun update(ip: String, transform: (MitmSession) -> MitmSession) {
-        val current = _sessions.value
-        val existing = current[ip] ?: MitmSession(ip = ip)
-        _sessions.value = current + (ip to transform(existing))
+    /** Atomic read-modify-write: callers run on Main, IO and DnsSpoofServer threads. */
+    private inline fun update(ip: String, crossinline transform: (MitmSession) -> MitmSession) {
+        _sessions.update { current ->
+            val existing = current[ip] ?: MitmSession(ip = ip)
+            current + (ip to transform(existing))
+        }
     }
 }
