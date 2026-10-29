@@ -1,5 +1,6 @@
 package org.csploit.strix.ui.hostlist
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Router
@@ -27,6 +30,8 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -52,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.csploit.strix.domain.model.Host
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,14 +66,17 @@ fun HostListScreen(
     onWifiKeygen: () -> Unit = {},
     onMsf: () -> Unit = {},
     onSettings: () -> Unit = {},
+    onLogs: () -> Unit = {},
     viewModel: HostListViewModel = hiltViewModel(),
 ) {
     val hosts by viewModel.hosts.collectAsStateWithLifecycle()
     val networkInfo by viewModel.networkInfo.collectAsStateWithLifecycle()
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val bundleUpdate by viewModel.bundleUpdateBanner.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
 
     if (showAddDialog) {
         AddHostDialog(
@@ -86,6 +95,7 @@ fun HostListScreen(
             }
         },
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = {
                     Column {
@@ -105,9 +115,6 @@ fun HostListScreen(
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
-                    IconButton(onClick = onWifiKeygen) {
-                        Icon(Icons.Default.Wifi, contentDescription = "WiFi Keygen")
-                    }
                     if (isScanning) {
                         IconButton(onClick = { viewModel.stopScan() }) {
                             Icon(Icons.Default.Stop, contentDescription = "Stop scan")
@@ -117,9 +124,30 @@ fun HostListScreen(
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start scan")
                         }
                     }
+                    // WiFi Keygen lives here: five icons left too little room for the SSID/IP subtitle.
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("WiFi Keygen") },
+                                leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null) },
+                                onClick = { showMenu = false; onWifiKeygen() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Logs") },
+                                leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
+                                onClick = { showMenu = false; onLogs() },
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },
@@ -139,6 +167,25 @@ fun HostListScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(16.dp),
                 )
+            }
+
+            bundleUpdate?.let { versions ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clickable(onClick = onSettings),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                ) {
+                    Text(
+                        "Update available: $versions. Open Settings → Bundles.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
 
             if (hosts.isEmpty() && !isScanning) {
@@ -200,6 +247,14 @@ private fun HostCard(
     }
 
     val alpha = if (host.connected) 1f else 0.5f
+    // Content colors must pair with the container: dynamic palettes (HyperOS)
+    // can give light containers in dark mode.
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when {
+        isGateway -> colors.secondaryContainer to colors.onSecondaryContainer
+        isSelf -> colors.tertiaryContainer to colors.onTertiaryContainer
+        else -> colors.surfaceVariant to colors.onSurfaceVariant
+    }
 
     Card(
         onClick = onClick,
@@ -207,11 +262,8 @@ private fun HostCard(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when {
-                isGateway -> MaterialTheme.colorScheme.secondaryContainer
-                isSelf -> MaterialTheme.colorScheme.tertiaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Row(
@@ -224,27 +276,27 @@ private fun HostCard(
                 imageVector = icon,
                 contentDescription = label,
                 modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                tint = contentColor.copy(alpha = alpha),
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (label.isNotEmpty()) label else host.ip,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+                    color = contentColor.copy(alpha = alpha),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = host.ip,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    color = contentColor.copy(alpha = alpha),
                 )
                 if (!isManual) {
                     Text(
                         text = host.mac,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.7f),
+                        color = contentColor.copy(alpha = alpha * 0.7f),
                     )
                 }
             }
@@ -253,7 +305,7 @@ private fun HostCard(
                     imageVector = Icons.Default.Wifi,
                     contentDescription = "Disconnected",
                     modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                    tint = contentColor.copy(alpha = 0.6f),
                 )
             }
         }

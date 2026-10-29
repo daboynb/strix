@@ -1,9 +1,11 @@
 package org.csploit.strix.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.csploit.strix.core.Logger
@@ -11,6 +13,8 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,8 +48,10 @@ class DnsSpoofServer @Inject constructor() {
         private const val QCLASS_IN = 1
         private const val SPOOF_TTL = 60
         private const val UPSTREAM_TIMEOUT_MS = 3000
+        private const val RECEIVE_POLL_MS = 500
     }
 
+    private val lock = Any()
     private var scope: CoroutineScope? = null
     private var serverJob: Job? = null
     private var socket: DatagramSocket? = null
@@ -53,11 +59,26 @@ class DnsSpoofServer @Inject constructor() {
     @Volatile
     private var entries: List<DnsEntry> = emptyList()
 
-    data class Stats(
-        var spoofed: Int = 0,
-        var forwarded: Int = 0,
-        var failed: Int = 0,
-    )
+    /** Counters are bumped from concurrent per-query coroutines, hence atomic. */
+    class Stats {
+        private val _spoofed = AtomicInteger()
+        private val _forwarded = AtomicInteger()
+        private val _failed = AtomicInteger()
+
+        val spoofed: Int get() = _spoofed.get()
+        val forwarded: Int get() = _forwarded.get()
+        val failed: Int get() = _failed.get()
+
+        internal fun incSpoofed() { _spoofed.incrementAndGet() }
+        internal fun incForwarded() { _forwarded.incrementAndGet() }
+        internal fun incFailed() { _failed.incrementAndGet() }
+
+        internal fun reset() {
+            _spoofed.set(0)
+            _forwarded.set(0)
+            _failed.set(0)
+        }
+    }
 
     val stats = Stats()
 
@@ -71,51 +92,80 @@ class DnsSpoofServer @Inject constructor() {
         port: Int = DEFAULT_PORT,
         onEvent: (String) -> Unit,
     ) {
+        synchronized(lock) { startLocked(entries, upstreamDns, port, onEvent) }
+    }
+
+    private fun startLocked(
+        entries: List<DnsEntry>,
+        upstreamDns: String,
+        port: Int,
+        onEvent: (String) -> Unit,
+    ) {
+        // The previous server job releases its socket in its finally block;
+        // the new one joins it before binding so the port is guaranteed free.
+        val previous = serverJob
         stop()
         this.entries = entries
-        stats.spoofed = 0
-        stats.forwarded = 0
-        stats.failed = 0
+        stats.reset()
 
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = newScope
 
         serverJob = newScope.launch {
+            previous?.join()
+            var sock: DatagramSocket? = null
             try {
-                val sock = DatagramSocket(InetSocketAddress("0.0.0.0", port))
-                sock.soTimeout = 0
-                socket = sock
+                val bound = DatagramSocket(InetSocketAddress("0.0.0.0", port))
+                sock = bound
+                // Finite timeout so the loop re-checks cancellation even if
+                // close() from stop() is somehow missed.
+                bound.soTimeout = RECEIVE_POLL_MS
+                synchronized(lock) {
+                    // stop() may have run while we were binding: it could not
+                    // close a socket it never saw, so bail out and close it here.
+                    if (!isActive) return@launch
+                    socket = bound
+                }
                 onEvent("[dns] listening on 0.0.0.0:$port, upstream=$upstreamDns, entries=${entries.size}")
 
                 val buffer = ByteArray(4096)
-                while (!Thread.currentThread().isInterrupted && !sock.isClosed) {
+                while (isActive && !bound.isClosed) {
                     val request = DatagramPacket(buffer, buffer.size)
                     try {
-                        sock.receive(request)
+                        bound.receive(request)
+                    } catch (_: SocketTimeoutException) {
+                        continue
                     } catch (_: Exception) {
                         break
                     }
                     val data = request.data.copyOf(request.length)
+                    val client = request.socketAddress as InetSocketAddress
                     newScope.launch {
-                        handle(sock, request.socketAddress as InetSocketAddress, data, upstreamDns, onEvent)
+                        handle(bound, client, data, upstreamDns, onEvent)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onEvent("[dns] server error: ${e.message}")
                 Logger.error("DnsSpoofServer failed", e)
             } finally {
+                sock?.runCatching { close() }
+                synchronized(lock) { if (socket === sock) socket = null }
                 onEvent("[dns] stopped")
             }
         }
     }
 
     fun stop() {
-        socket?.runCatching { close() }
-        socket = null
-        serverJob?.cancel()
-        serverJob = null
-        scope?.coroutineContext?.get(Job)?.cancel()
-        scope = null
+        synchronized(lock) {
+            socket?.runCatching { close() }
+            socket = null
+            serverJob?.cancel()
+            serverJob = null
+            scope?.coroutineContext?.get(Job)?.cancel()
+            scope = null
+        }
     }
 
     private suspend fun handle(
@@ -126,7 +176,7 @@ class DnsSpoofServer @Inject constructor() {
         onEvent: (String) -> Unit,
     ) = withContext(Dispatchers.IO) {
         if (req.size < 12) {
-            stats.failed++
+            stats.incFailed()
             return@withContext
         }
         val qName = try { parseQName(req, 12) } catch (_: Exception) { null }
@@ -140,7 +190,7 @@ class DnsSpoofServer @Inject constructor() {
             val reply = buildSpoofedReply(req, match.address)
             if (reply != null) {
                 sock.send(DatagramPacket(reply, reply.size, client))
-                stats.spoofed++
+                stats.incSpoofed()
                 onEvent("[dns] SPOOF ${qName} → ${match.address}")
                 return@withContext
             }
@@ -156,10 +206,10 @@ class DnsSpoofServer @Inject constructor() {
                 fwd.receive(reply)
                 val data = reply.data.copyOf(reply.length)
                 sock.send(DatagramPacket(data, data.size, client))
-                stats.forwarded++
+                stats.incForwarded()
             }
         } catch (e: Exception) {
-            stats.failed++
+            stats.incFailed()
             onEvent("[dns] forward error for ${qName ?: "<parse-fail>"}: ${e.message}")
         }
     }

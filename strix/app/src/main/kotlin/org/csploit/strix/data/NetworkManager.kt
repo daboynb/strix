@@ -2,6 +2,7 @@ package org.csploit.strix.data
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,10 +22,22 @@ class NetworkManager @Inject constructor(
     private val wifiManager: WifiManager =
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
-    fun isWifiConnected(): Boolean {
-        val active = connectivityManager.activeNetwork ?: return false
-        val caps = connectivityManager.getNetworkCapabilities(active) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    fun isWifiConnected(): Boolean = findWifiNetwork() != null
+
+    /**
+     * The physical Wi-Fi network. With a VPN up, activeNetwork is the VPN and
+     * its caps may also report TRANSPORT_WIFI (underlying transport), so its
+     * LinkProperties would be tun0's: require NET_CAPABILITY_NOT_VPN too.
+     */
+    private fun findWifiNetwork(): Network? {
+        fun isPhysicalWifi(network: Network): Boolean {
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
+            return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
+        connectivityManager.activeNetwork?.takeIf(::isPhysicalWifi)?.let { return it }
+        @Suppress("DEPRECATION") // No callback-free replacement for a one-shot lookup.
+        return connectivityManager.allNetworks.firstOrNull(::isPhysicalWifi)
     }
 
     /**
@@ -32,13 +45,11 @@ class NetworkManager @Inject constructor(
      * Port of Network.java constructor, using API 29+ (no deprecated DhcpInfo.netmask).
      */
     fun detectNetwork(): NetworkInfo? {
-        if (!isWifiConnected()) {
+        val wifiNetwork = findWifiNetwork() ?: run {
             Logger.warning("NetworkManager: not connected to WiFi")
             return null
         }
-
-        val activeNetwork = connectivityManager.activeNetwork ?: return null
-        val linkProperties = connectivityManager.getLinkProperties(activeNetwork) ?: return null
+        val linkProperties = connectivityManager.getLinkProperties(wifiNetwork) ?: return null
 
         // Find IPv4 address and prefix length from LinkProperties
         var localIp: String? = null

@@ -10,10 +10,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ScanRegistry
+import org.csploit.strix.data.bundle.BundleUpdateManager
 import org.csploit.strix.data.NetworkManager
 import org.csploit.strix.ui.navigation.Routes
 import org.csploit.strix.data.NetworkScanner
@@ -30,7 +33,17 @@ class HostListViewModel @Inject constructor(
     private val networkManager: NetworkManager,
     private val targetRepository: TargetRepository,
     private val scanRegistry: ScanRegistry,
+    bundleUpdates: BundleUpdateManager,
 ) : ViewModel() {
+
+    /** e.g. "Metasploit 6.4.130-r1" when a newer bundle than the installed one is published, else null. */
+    val bundleUpdateBanner: StateFlow<String?> =
+        combine(bundleUpdates.tools.state, bundleUpdates.msf.state) { t, m ->
+            listOfNotNull(t, m)
+                .filter { it.availableVersion != null && it.installedVersion != null }
+                .joinToString(" / ") { "${it.label} ${it.availableVersion}" }
+                .ifEmpty { null }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val hosts: StateFlow<List<Host>> = targetRepository.hosts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -38,30 +51,22 @@ class HostListViewModel @Inject constructor(
     private val _networkInfo = MutableStateFlow<NetworkInfo?>(null)
     val networkInfo: StateFlow<NetworkInfo?> = _networkInfo.asStateFlow()
 
-    private val _isScanning = MutableStateFlow(false)
-    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
+    // Derived from the registry so a recreated VM sees a scan started by a
+    // previous instance, and the flag drops however the task ends.
+    val isScanning: StateFlow<Boolean> = scanRegistry.activeTasks
+        .map { tasks -> tasks.any { it.id == SCAN_ID } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, scanRegistry.activeTasks.value.any { it.id == SCAN_ID })
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private var scanJob: Job? = null
-    private val resolvedIps = mutableSetOf<String>()
-    private val pendingDisconnects = mutableMapOf<String, Job>()
-
     init {
         // Detect network on startup but don't start scanning
         _networkInfo.value = networkManager.detectNetwork()
-        if (scanRegistry.isActive("netscan")) {
-            _isScanning.value = true
-        }
     }
 
     fun startScan() {
-        scanJob?.cancel()
         targetRepository.clear()
-        resolvedIps.clear()
-        pendingDisconnects.values.forEach { it.cancel() }
-        pendingDisconnects.clear()
 
         val info = networkManager.detectNetwork()
         if (info == null) {
@@ -70,13 +75,21 @@ class HostListViewModel @Inject constructor(
         }
         _networkInfo.value = info
         _error.value = null
-        _isScanning.value = true
 
-        scanJob = scanRegistry.launch(
-            id = "netscan",
+        scanRegistry.launch(
+            id = SCAN_ID,
             label = "Network discovery",
             deepLink = Routes.deepLinkHostList(),
+            onError = { t ->
+                Logger.error("Scan failed: ${t.javaClass.simpleName}: ${t.message}")
+                _error.value = "Scan failed: ${t.message ?: t.javaClass.simpleName}"
+            },
         ) {
+            // Per-run state and helper coroutines belong to the task (this
+            // scope), not to the VM: they keep working if the VM is recreated
+            // and are cancelled together with the scan.
+            val resolvedIps = mutableSetOf<String>()
+            val pendingDisconnects = mutableMapOf<String, Job>()
             networkScanner.scan("${info.gatewayIp}/${info.prefixLength}").collect { event ->
                 when (event) {
                     is ScanEvent.HostFound -> {
@@ -84,12 +97,12 @@ class HostListViewModel @Inject constructor(
                         targetRepository.addOrUpdate(event.ip, event.mac, event.name)
                         if (event.name.isNullOrBlank() && event.ip !in resolvedIps) {
                             resolvedIps.add(event.ip)
-                            resolveHostname(event.ip)
+                            launch(Dispatchers.IO) { resolveHostname(event.ip) }
                         }
                     }
                     is ScanEvent.HostLost -> {
                         pendingDisconnects[event.ip]?.cancel()
-                        pendingDisconnects[event.ip] = viewModelScope.launch {
+                        pendingDisconnects[event.ip] = launch {
                             delay(5000)
                             targetRepository.markDisconnected(event.ip)
                             pendingDisconnects.remove(event.ip)
@@ -100,7 +113,6 @@ class HostListViewModel @Inject constructor(
                         _error.value = event.message
                     }
                     is ScanEvent.ScanEnded -> {
-                        _isScanning.value = false
                         val hostCount = targetRepository.hosts.value.size
                         scanRegistry.notifications.notifyScanComplete(
                             title = "Network discovery complete",
@@ -139,31 +151,26 @@ class HostListViewModel @Inject constructor(
     }
 
     companion object {
+        private const val SCAN_ID = "netscan"
         private val IPV4_REGEX = Regex("""^(?:\d{1,3}\.){3}\d{1,3}$""")
     }
 
     fun stopScan() {
-        scanRegistry.cancel("netscan")
-        scanJob = null
-        pendingDisconnects.values.forEach { it.cancel() }
-        pendingDisconnects.clear()
-        _isScanning.value = false
+        scanRegistry.cancel(SCAN_ID)
     }
 
     private fun resolveHostname(ip: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val addr = InetAddress.getByName(ip)
-                val hostname = addr.canonicalHostName
-                if (hostname != null && hostname != ip) {
-                    targetRepository.updateName(ip, hostname)
-                }
-            } catch (_: Exception) {}
-        }
+        try {
+            val addr = InetAddress.getByName(ip)
+            val hostname = addr.canonicalHostName
+            if (hostname != null && hostname != ip) {
+                targetRepository.updateName(ip, hostname)
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onCleared() {
         super.onCleared()
-        // scanJob lives in ScanRegistry.appScope and intentionally survives VM destruction.
+        // The scan lives in ScanRegistry.appScope and intentionally survives VM destruction.
     }
 }

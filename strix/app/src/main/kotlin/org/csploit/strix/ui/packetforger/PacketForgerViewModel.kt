@@ -31,7 +31,9 @@ class PacketForgerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val ip: String = savedStateHandle["ip"] ?: ""
-    val mac: String? = savedStateHandle.get<String>("mac")?.takeIf { it.isNotEmpty() && it != "00:00:00:00:00:00" }
+    // Null unless the arg is a real MAC (manual hosts carry "manual"), which
+    // also hides the Wake-on-LAN button.
+    val mac: String? = PacketForger.normalizeMac(savedStateHandle.get<String>("mac"))
 
     private val _uiState = MutableStateFlow(PacketForgerUiState())
     val uiState: StateFlow<PacketForgerUiState> = _uiState.asStateFlow()
@@ -90,6 +92,10 @@ class PacketForgerViewModel @Inject constructor(
 
     fun sendWol() {
         val macAddr = mac ?: return
+        val data = packetForger.buildWolPacket(macAddr) ?: run {
+            _uiState.value = _uiState.value.copy(error = "Invalid MAC address: $macAddr")
+            return
+        }
         _uiState.value = _uiState.value.copy(
             protocol = Protocol.UDP,
             port = "9",
@@ -99,8 +105,6 @@ class PacketForgerViewModel @Inject constructor(
 
         sendJob?.cancel()
         _uiState.value = _uiState.value.copy(isSending = true, response = null, error = null)
-
-        val data = packetForger.buildWolPacket(macAddr)
 
         sendJob = viewModelScope.launch {
             val result = packetForger.sendUdp(ip, 9, data, waitResponse = false)

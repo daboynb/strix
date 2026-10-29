@@ -51,7 +51,19 @@ android {
     }
 
     androidResources {
-        noCompress += ".tar.gz"
+        // Bundle archives are already gzip'd: store them, don't deflate again.
+        // noCompress matches file-name suffixes, so ".tar.gz" never matched ".tar.gz.bin".
+        noCompress += ".tar.gz.bin"
+        // Metasploit is downloaded at runtime (GitHub releases). A locally built
+        // ruby-msf-bundle.tar.gz.bin in assets/ must never be packaged.
+        // The rest is aapt's default ignore pattern.
+        ignoreAssetsPattern =
+            "!ruby-msf-bundle.*:!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
+    testOptions {
+        // Logger calls android.util.Log; stub it out on the JVM
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -111,6 +123,10 @@ dependencies {
 
     // MessagePack for MSF RPC protocol
     implementation("org.msgpack:msgpack-core:0.9.8")
+
+    testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub on the JVM; bundle manifest/release parsing tests need the real one
+    testImplementation("org.json:json:20240303")
 }
 
 kapt {

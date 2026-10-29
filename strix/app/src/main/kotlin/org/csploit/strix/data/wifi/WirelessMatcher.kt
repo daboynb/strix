@@ -98,9 +98,10 @@ class WirelessMatcher(
         if (ssid.matches(Regex("[eE]ircom[0-7]{4} ?[0-7]{4}"))) {
             if (mac.isEmpty() || mac.replace(":", "").isEmpty()) {
                 val filteredSsid = ssid.replace(" ", "")
+                // toHexString drops leading zeros: pad to 3 octets.
                 val end = Integer.toHexString(
                     Integer.parseInt(filteredSsid.substring(filteredSsid.length - 8), 8) xor 0x000fcc
-                )
+                ).padStart(6, '0')
                 mac = "00:0F:CC:${end.substring(0, 2)}:${end.substring(2, 4)}:${end.substring(4, 6)}"
             }
             return EircomKeygen(ssid, mac, level, enc)

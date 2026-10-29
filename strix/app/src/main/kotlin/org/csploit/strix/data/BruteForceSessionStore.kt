@@ -3,6 +3,7 @@ package org.csploit.strix.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,13 +37,15 @@ class BruteForceSessionStore @Inject constructor() {
     fun sessionOf(key: String): BruteForceSession? = _sessions.value[key]
 
     fun clear(key: String) {
-        _sessions.value = _sessions.value - key
+        _sessions.update { it - key }
     }
 
     fun resetForNewRun(key: String, ip: String, port: Int, method: String) {
-        _sessions.value = _sessions.value + (key to BruteForceSession(
-            key = key, ip = ip, port = port, method = method, isRunning = true,
-        ))
+        _sessions.update {
+            it + (key to BruteForceSession(
+                key = key, ip = ip, port = port, method = method, isRunning = true,
+            ))
+        }
     }
 
     fun setRunning(key: String, running: Boolean) {
@@ -64,11 +67,13 @@ class BruteForceSessionStore @Inject constructor() {
         update(key) { it.copy(statusLine = line, progress = progress) }
     }
 
-    private inline fun update(key: String, transform: (BruteForceSession) -> BruteForceSession) {
-        val current = _sessions.value
-        val existing = current[key] ?: BruteForceSession(
-            key = key, ip = "", port = 0, method = "",
-        )
-        _sessions.value = current + (key to transform(existing))
+    /** Atomic read-modify-write: hydra output arrives from IO threads. */
+    private inline fun update(key: String, crossinline transform: (BruteForceSession) -> BruteForceSession) {
+        _sessions.update { current ->
+            val existing = current[key] ?: BruteForceSession(
+                key = key, ip = "", port = 0, method = "",
+            )
+            current + (key to transform(existing))
+        }
     }
 }

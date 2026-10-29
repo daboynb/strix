@@ -34,11 +34,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 data class ActionItem(
     val icon: ImageVector,
@@ -64,6 +67,7 @@ fun HostDetailScreen(
     // No "Exploits" tile here on purpose: the Exploit Finder needs a service
     // (ip + port + service name) to populate the search. Entry point is via
     // Port Scanner → tap the bug icon on a discovered port row.
+    val manufacturer by viewModel.manufacturer.collectAsStateWithLifecycle()
     val actions = listOf(
         ActionItem(Icons.Default.Radar, "Port Scanner") { onPortScanner(viewModel.ip) },
         ActionItem(Icons.AutoMirrored.Filled.AltRoute, "Traceroute") { onTraceroute(viewModel.ip) },
@@ -76,6 +80,7 @@ fun HostDetailScreen(
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = {
                     Column {
@@ -84,7 +89,7 @@ fun HostDetailScreen(
                             buildString {
                                 append(viewModel.ip)
                                 viewModel.mac?.let { append(" • $it") }
-                                viewModel.manufacturer?.let { append(" • $it") }
+                                manufacturer?.let { append(" • $it") }
                             },
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -97,6 +102,9 @@ fun HostDetailScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },

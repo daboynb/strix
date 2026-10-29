@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
+import org.csploit.strix.core.shellQuote
 import org.csploit.strix.domain.model.DefaultCreds
 import java.io.File
 import java.net.URL
@@ -42,7 +43,8 @@ class CredentialTester @Inject constructor(
         val statusRegex = Regex("""\[STATUS]\s*(.+)""")
 
         processManager.execute(
-            command = "hydra -L '${usersFile.absolutePath}' -P '${passwordsFile.absolutePath}' -f -t 4 -s $port $ip $module /",
+            command = "hydra -L ${shellQuote(usersFile.absolutePath)} -P ${shellQuote(passwordsFile.absolutePath)} " +
+                "-f -t 4 -s $port ${shellQuote(ip)} $module /",
             toolsDir = toolManager.toolsPath,
             workDir = toolManager.corePath,
         ).collect { event ->

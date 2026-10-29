@@ -1,10 +1,12 @@
 package org.csploit.strix.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
+import org.csploit.strix.core.shellQuote
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,18 +43,39 @@ class NetworkScanner @Inject constructor(
         )
     }
 
+    /**
+     * Always terminates with [ScanEvent.ScanEnded], also when nmap can't be
+     * started or the process flow fails (reported as [ScanEvent.ScanError] first).
+     */
     fun scan(subnet: String): Flow<ScanEvent> = flow {
         var pendingIp: String? = null
         var pendingName: String? = null
+        var ended = false
+        var failure: Throwable? = null
+
+        // A report line without a MAC line is the local host (nmap doesn't
+        // show a MAC for its own IP): emit it with a placeholder MAC.
+        suspend fun flushPending() {
+            val ip = pendingIp ?: return
+            emit(ScanEvent.HostFound("00:00:00:00:00:00", ip, pendingName))
+            pendingIp = null
+            pendingName = null
+        }
 
         processManager.execute(
-            command = "nmap -sn -PR -T${appSettings.nmapTiming} $subnet",
+            command = "nmap -sn -PR -T${appSettings.nmapTiming} --stats-every 10s ${shellQuote(subnet)}",
             toolsDir = toolManager.toolsPath,
             workDir = toolManager.corePath,
-        ).collect { event ->
+        ).catch { e ->
+            // Upstream only (process start/IO); downstream exceptions are rethrown by catch.
+            Logger.error("nmap scan failed: ${e.javaClass.simpleName}: ${e.message}")
+            failure = e
+        }.collect { event ->
             when (event) {
                 is ProcessEvent.StdoutLine -> {
+                    Logger.debug("nmap scan stdout: ${event.line}")
                     REPORT_REGEX.find(event.line)?.let { match ->
+                        flushPending()
                         pendingName = match.groupValues[1].ifEmpty { null }
                         pendingIp = match.groupValues[2]
                     }
@@ -71,21 +94,24 @@ class NetworkScanner @Inject constructor(
                     Logger.debug("nmap scan stderr: ${event.line}")
                 }
                 is ProcessEvent.Exited -> {
-                    // Emit local host (nmap doesn't show MAC for own IP)
-                    if (pendingIp != null) {
-                        emit(ScanEvent.HostFound("00:00:00:00:00:00", pendingIp!!, pendingName))
-                        pendingIp = null
-                    }
+                    flushPending()
                     if (event.code != 0) {
                         emit(ScanEvent.ScanError("nmap scan exited with code ${event.code}"))
                     }
                     emit(ScanEvent.ScanEnded)
+                    ended = true
                 }
                 is ProcessEvent.Killed -> {
                     emit(ScanEvent.ScanError("nmap scan killed by signal ${event.signal}"))
                     emit(ScanEvent.ScanEnded)
+                    ended = true
                 }
             }
+        }
+        if (!ended) {
+            flushPending()
+            emit(ScanEvent.ScanError("nmap scan failed: ${failure?.message ?: "no exit status"}"))
+            emit(ScanEvent.ScanEnded)
         }
     }
 }

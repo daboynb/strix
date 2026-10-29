@@ -1,12 +1,22 @@
 package org.csploit.strix.data
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import java.io.ByteArrayOutputStream
+import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,35 +35,27 @@ class PacketForger @Inject constructor() {
         data: ByteArray,
         waitResponse: Boolean,
         timeoutMs: Long = 5000,
-    ): ForgeResult = withContext(Dispatchers.IO) {
-        try {
-            Socket(ip, port).use { socket ->
-                socket.soTimeout = timeoutMs.toInt()
+    ): ForgeResult = try {
+        Socket().useCancellable { socket ->
+            // Socket(ip, port) would connect with the OS default timeout
+            // (~75-130 s); bound the connect by the same timeout as reads.
+            socket.connect(InetSocketAddress(ip, port), timeoutMs.toInt())
+            socket.soTimeout = timeoutMs.toInt()
 
-                val out = socket.getOutputStream()
-                out.write(data)
-                out.flush()
+            val out = socket.getOutputStream()
+            out.write(data)
+            out.flush()
 
-                val response = if (waitResponse) {
-                    try {
-                        val reader = socket.getInputStream().bufferedReader()
-                        val sb = StringBuilder()
-                        val buf = CharArray(4096)
-                        var n: Int
-                        while (reader.read(buf).also { n = it } != -1) {
-                            sb.append(buf, 0, n)
-                        }
-                        sb.toString()
-                    } catch (_: java.net.SocketTimeoutException) {
-                        null
-                    }
-                } else null
-
-                ForgeResult(success = true, response = response)
-            }
-        } catch (e: Exception) {
-            ForgeResult(success = false, error = e.message ?: e.javaClass.simpleName)
+            val response = if (waitResponse) readUntilEofOrTimeout(socket) else null
+            ForgeResult(success = true, response = response)
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Closing the socket on cancellation surfaces as an IOException here:
+        // rethrow as cancellation instead of reporting a bogus error.
+        currentCoroutineContext().ensureActive()
+        ForgeResult(success = false, error = e.message ?: e.javaClass.simpleName)
     }
 
     suspend fun sendUdp(
@@ -62,14 +64,11 @@ class PacketForger @Inject constructor() {
         data: ByteArray,
         waitResponse: Boolean,
         timeoutMs: Long = 5000,
-    ): ForgeResult = withContext(Dispatchers.IO) {
-        try {
+    ): ForgeResult = try {
+        DatagramSocket().useCancellable { socket ->
             val address = InetAddress.getByName(ip)
-            val socket = DatagramSocket()
             socket.soTimeout = timeoutMs.toInt()
-
-            val packet = DatagramPacket(data, data.size, address, port)
-            socket.send(packet)
+            socket.send(DatagramPacket(data, data.size, address, port))
 
             val response = if (waitResponse) {
                 try {
@@ -77,20 +76,29 @@ class PacketForger @Inject constructor() {
                     val resp = DatagramPacket(buf, buf.size)
                     socket.receive(resp)
                     String(buf, 0, resp.length)
-                } catch (_: java.net.SocketTimeoutException) {
+                } catch (_: SocketTimeoutException) {
                     "(timeout — no response)"
                 }
             } else null
 
-            socket.close()
             ForgeResult(success = true, response = response)
-        } catch (e: Exception) {
-            ForgeResult(success = false, error = e.message ?: e.javaClass.simpleName)
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Closing the socket on cancellation surfaces as an IOException here:
+        // rethrow as cancellation instead of reporting a bogus error.
+        currentCoroutineContext().ensureActive()
+        ForgeResult(success = false, error = e.message ?: e.javaClass.simpleName)
     }
 
-    fun buildWolPacket(mac: String): ByteArray {
-        val macBytes = mac.split(":")
+    /**
+     * Builds a magic packet (6 x 0xFF + 16 x MAC). Returns null when [mac] is
+     * not a valid unicast MAC (e.g. the "manual" placeholder of manual hosts).
+     */
+    fun buildWolPacket(mac: String): ByteArray? {
+        val normalized = normalizeMac(mac) ?: return null
+        val macBytes = normalized.split(":")
             .map { it.toInt(16).toByte() }
             .toByteArray()
         val packet = ByteArray(6 + 16 * macBytes.size)
@@ -101,5 +109,63 @@ class PacketForger @Inject constructor() {
             System.arraycopy(macBytes, 0, packet, 6 + i * macBytes.size, macBytes.size)
         }
         return packet
+    }
+
+    /** Reads until EOF; on read timeout keeps whatever was already received. */
+    private fun readUntilEofOrTimeout(socket: Socket): String? {
+        val input = socket.getInputStream()
+        val received = ByteArrayOutputStream()
+        val buf = ByteArray(4096)
+        try {
+            while (true) {
+                val n = input.read(buf)
+                if (n == -1) break
+                received.write(buf, 0, n)
+            }
+        } catch (_: SocketTimeoutException) {
+            // Server kept the connection open: return the partial response.
+        }
+        return if (received.size() == 0) null else received.toString(Charsets.UTF_8.name())
+    }
+
+    /**
+     * Runs the blocking [block] on IO and closes the resource when done or when
+     * the calling coroutine is cancelled — closing unblocks connect/read/receive,
+     * which don't react to coroutine cancellation on their own.
+     */
+    private suspend fun <C : Closeable, R> C.useCancellable(block: (C) -> R): R {
+        val resource = this
+        return coroutineScope {
+            val closer = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    resource.close()
+                }
+            }
+            try {
+                withContext(Dispatchers.IO) { block(resource) }
+            } finally {
+                closer.cancel()
+                resource.close()
+            }
+        }
+    }
+
+    companion object {
+        private val MAC_REGEX =
+            Regex("^[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\\1[0-9A-Fa-f]{2}){4}$")
+
+        /**
+         * Validates a MAC written with ':' or '-' separators and returns it as
+         * upper-case colon-separated, or null if invalid / all-zero / broadcast.
+         */
+        fun normalizeMac(mac: String?): String? {
+            val trimmed = mac?.trim() ?: return null
+            if (!MAC_REGEX.matches(trimmed)) return null
+            val normalized = trimmed.replace('-', ':').uppercase()
+            if (normalized == "00:00:00:00:00:00" || normalized == "FF:FF:FF:FF:FF:FF") return null
+            return normalized
+        }
     }
 }

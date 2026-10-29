@@ -10,6 +10,10 @@ import javax.inject.Singleton
 @Singleton
 class RootChecker @Inject constructor() {
 
+    /** Result of the last [isRootAvailable] call in this process, null if never checked. */
+    @Volatile var lastResult: Boolean? = null
+        private set
+
     suspend fun isRootAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
             val process = ProcessBuilder("su", "-c", "id").start()
@@ -18,9 +22,11 @@ class RootChecker @Inject constructor() {
             val exitCode = process.waitFor()
             val hasRoot = exitCode == 0 && output != null && output.contains("uid=0")
             Logger.info("RootChecker: su -c id => exit=$exitCode output=$output hasRoot=$hasRoot")
+            lastResult = hasRoot
             hasRoot
         } catch (e: Exception) {
             Logger.error("RootChecker: su not available: ${e.message}")
+            lastResult = false
             false
         }
     }

@@ -24,7 +24,14 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-class MsfRpcException(message: String, val errorClass: String? = null) : Exception(message)
+class MsfRpcException(
+    message: String,
+    val errorClass: String? = null,
+    /** HTTP status returned by msfrpcd, null for transport/parse-level failures. */
+    val httpStatus: Int? = null,
+    /** True when msfrpcd rejected the session token (not a bad login). */
+    val tokenRejected: Boolean = false,
+) : Exception(message)
 
 private const val DEFAULT_READ_TIMEOUT_MS = 30_000
 private const val EXPLOIT_READ_TIMEOUT_MS = 300_000
@@ -367,13 +374,9 @@ class MsfRpcClient @Inject constructor() {
         try {
             conn.outputStream.use { it.write(requestBody) }
 
-            if (conn.responseCode == 401) {
-                // Token expired — clear it so ensureDaemon re-authenticates
-                token = null
-                throw MsfRpcException("HTTP 401: Token expired")
-            }
-            if (conn.responseCode != 200) {
-                throw MsfRpcException("HTTP ${conn.responseCode}: ${conn.responseMessage}")
+            val status = conn.responseCode
+            if (status != 200) {
+                throw httpError(method, status, conn)
             }
 
             val responseBytes = conn.inputStream.use { it.readBytes() }
@@ -391,6 +394,49 @@ class MsfRpcClient @Inject constructor() {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /**
+     * msfrpcd reports failures as a non-200 status with a msgpack body
+     * {error, error_class, error_string, error_message, ...}. 401 means either
+     * a bad auth.login (wrong user/password) or a rejected token; only the
+     * latter invalidates our token.
+     */
+    private fun httpError(method: String, status: Int, conn: HttpURLConnection): MsfRpcException {
+        val body = try {
+            conn.errorStream?.use { it.readBytes() }
+        } catch (_: java.io.IOException) {
+            null
+        }
+        val err = body?.let { parseErrorBody(it) }
+        val detail = err?.message ?: conn.responseMessage ?: "HTTP $status"
+
+        if (status == 401 && method == "auth.login") {
+            return MsfRpcException("Login failed: $detail", err?.errorClass, status)
+        }
+        if (status == 401) {
+            // Token expired/invalid — clear it so callers re-authenticate
+            token = null
+            return MsfRpcException(
+                "Authentication token rejected: $detail", err?.errorClass, status, tokenRejected = true,
+            )
+        }
+        return MsfRpcException("$method failed (HTTP $status): $detail", err?.errorClass, status)
+    }
+
+    internal data class RpcError(val message: String?, val errorClass: String?)
+
+    /** Decode msfrpcd's msgpack error body; null if it isn't one. */
+    internal fun parseErrorBody(body: ByteArray): RpcError? {
+        val map = try {
+            unpackResponse(body) as? Map<*, *>
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val message = (map["error_message"] ?: map["error_string"])?.toString()?.takeIf { it.isNotBlank() }
+        val errorClass = map["error_class"]?.toString()?.takeIf { it.isNotBlank() }
+        if (message == null && errorClass == null) return null
+        return RpcError(message, errorClass)
     }
 
     // --- MessagePack Serialization ---

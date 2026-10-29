@@ -46,8 +46,12 @@ class VerizonKeygen(
         var ssidKey = Integer.toHexString(result).uppercase()
         while (ssidKey.length < 6) ssidKey = "0$ssidKey"
 
-        if (this.mac.isNotEmpty()) {
-            addPassword(this.mac.substring(3, 5) + this.mac.substring(6, 8) + ssidKey)
+        // Key = MAC octets 2-3 + ssidKey (cf. the "1801"/"1F90" fallbacks for
+        // the 00:18:01 / 00:1F:90 Actiontec OUIs). [mac] is colon-stripped, so
+        // that's hex digits 2..5 — RouterKeygen PC: mac.mid(2,4). The old
+        // substring(3,5)+substring(6,8) indices were for the colon form.
+        if (this.mac.length >= 6) {
+            addPassword(this.mac.substring(2, 6) + ssidKey)
         } else {
             addPassword("1801$ssidKey")
             addPassword("1F90$ssidKey")

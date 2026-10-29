@@ -85,7 +85,9 @@ class JenkinsHash {
     @Suppress("NAME_SHADOWING")
     fun hashword(k: LongArray, length: Int, initval: Long): Long {
         var length = length
-        a = 0xdeadbeefL + (length.toLong() shl 2) + (initval and MAX_VALUE)
+        // uint32 arithmetic as in lookup3: the sum must wrap at 2^32, otherwise
+        // bit 32 leaks into rot()/ushr and every following step is wrong.
+        a = (0xdeadbeefL + (length.toLong() shl 2) + (initval and MAX_VALUE)) and MAX_VALUE
         b = a
         c = a
 

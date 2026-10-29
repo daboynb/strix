@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.csploit.strix.ui.theme.StatusBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +51,7 @@ fun WifiKeygenScreen(
 
     Scaffold(
         topBar = {
+            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
             TopAppBar(
                 title = { Text("WiFi Keygen") },
                 navigationIcon = {
@@ -64,6 +66,9 @@ fun WifiKeygenScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
         },
@@ -106,17 +111,22 @@ private fun NetworkCard(
     network: WifiNetwork,
     onGenerateKeys: () -> Unit,
 ) {
+    // Keep container/content pairs matched: dynamic palettes (e.g. HyperOS) can
+    // give light containers in dark mode, making mismatched text illegible.
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when {
+        network.keys != null -> colors.errorContainer to colors.onErrorContainer
+        network.hasKeygen -> colors.secondaryContainer to colors.onSecondaryContainer
+        else -> colors.surfaceVariant to colors.onSurfaceVariant
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .then(if (network.hasKeygen) Modifier.clickable(onClick = onGenerateKeys) else Modifier),
         colors = CardDefaults.cardColors(
-            containerColor = when {
-                network.keys != null -> MaterialTheme.colorScheme.errorContainer
-                network.hasKeygen -> MaterialTheme.colorScheme.secondaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -129,7 +139,7 @@ private fun NetworkCard(
                     if (network.encryption == "Open") Icons.Default.LockOpen else Icons.Default.Lock,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
-                    tint = if (network.hasKeygen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = contentColor,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -140,18 +150,22 @@ private fun NetworkCard(
                     Text(
                         "${network.bssid} • ${network.encryption} • ${network.frequency}MHz",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = contentColor,
                     )
                 }
                 if (network.hasKeygen) {
                     if (network.isGenerating) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = contentColor,
+                            strokeWidth = 2.dp,
+                        )
                     } else {
                         Icon(
                             Icons.Default.Key,
                             contentDescription = "Generate keys",
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = contentColor,
                         )
                     }
                 }
@@ -169,7 +183,7 @@ private fun NetworkCard(
                     modifier = Modifier.padding(start = 28.dp, top = 4.dp),
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+                    color = contentColor,
                 )
             }
 
@@ -178,7 +192,7 @@ private fun NetworkCard(
                     it,
                     modifier = Modifier.padding(start = 28.dp, top = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = contentColor,
                 )
             }
         }

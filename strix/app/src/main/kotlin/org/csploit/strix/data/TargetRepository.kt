@@ -3,10 +3,15 @@ package org.csploit.strix.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import org.csploit.strix.domain.model.Host
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * All mutations go through [MutableStateFlow.update] so concurrent writers
+ * (scanner callbacks on IO threads, UI on Main) never lose each other's changes.
+ */
 @Singleton
 class TargetRepository @Inject constructor() {
 
@@ -14,47 +19,43 @@ class TargetRepository @Inject constructor() {
     val hosts: StateFlow<List<Host>> = _hosts.asStateFlow()
 
     fun addOrUpdate(ip: String, mac: String, name: String?) {
-        val current = _hosts.value.toMutableList()
-        val index = current.indexOfFirst { it.ip == ip }
-        if (index >= 0) {
-            val existing = current[index]
-            // Preserve existing name if new one is empty
-            val resolvedName = if (!name.isNullOrBlank()) name else existing.name
-            current[index] = existing.copy(
-                mac = mac,
-                name = resolvedName,
-                connected = true,
-            )
-        } else {
-            current.add(Host(ip = ip, mac = mac, name = name, connected = true))
+        _hosts.update { hosts ->
+            val current = hosts.toMutableList()
+            val index = current.indexOfFirst { it.ip == ip }
+            if (index >= 0) {
+                val existing = current[index]
+                // Preserve existing name if new one is empty
+                val resolvedName = if (!name.isNullOrBlank()) name else existing.name
+                current[index] = existing.copy(
+                    mac = mac,
+                    name = resolvedName,
+                    connected = true,
+                )
+            } else {
+                current.add(Host(ip = ip, mac = mac, name = name, connected = true))
+            }
+            current
         }
-        _hosts.value = current
     }
 
     fun updateName(ip: String, name: String) {
-        val current = _hosts.value.toMutableList()
-        val index = current.indexOfFirst { it.ip == ip }
-        if (index >= 0) {
-            current[index] = current[index].copy(name = name)
-            _hosts.value = current
+        _hosts.update { hosts ->
+            hosts.map { if (it.ip == ip) it.copy(name = name) else it }
         }
     }
 
     fun markDisconnected(ip: String) {
-        val current = _hosts.value.toMutableList()
-        val index = current.indexOfFirst { it.ip == ip }
-        if (index >= 0) {
-            current[index] = current[index].copy(connected = false)
-            _hosts.value = current
+        _hosts.update { hosts ->
+            hosts.map { if (it.ip == ip) it.copy(connected = false) else it }
         }
     }
 
     fun clear() {
         // Preserve manually added hosts across scans
-        _hosts.value = _hosts.value.filter { it.mac == "manual" }
+        _hosts.update { hosts -> hosts.filter { it.mac == "manual" } }
     }
 
     fun remove(ip: String) {
-        _hosts.value = _hosts.value.filterNot { it.ip == ip }
+        _hosts.update { hosts -> hosts.filterNot { it.ip == ip } }
     }
 }

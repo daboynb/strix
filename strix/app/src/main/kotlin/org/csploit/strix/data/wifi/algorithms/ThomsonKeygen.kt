@@ -75,10 +75,11 @@ class ThomsonKeygen(
             cp[2] = Character.forDigit(year / 10, 10).code.toByte()
             cp[3] = Character.forDigit(year % 10, 10).code.toByte()
             for (week in 1..52) {
-                if (stopRequested) return false
                 cp[4] = Character.forDigit(week / 10, 10).code.toByte()
                 cp[5] = Character.forDigit(week % 10, 10).code.toByte()
                 for (a in 0 until 36) {
+                    // Checked every 36*36 hashes so cancellation is prompt.
+                    if (stopRequested) return false
                     cp[6] = CHARS0[a]
                     cp[7] = CHARS1[a]
                     for (b in 0 until 36) {
