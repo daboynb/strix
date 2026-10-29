@@ -1,11 +1,7 @@
 package org.csploit.strix.core
 
 import android.util.Log
-import java.io.BufferedOutputStream
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.io.OutputStream
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicInteger
@@ -33,8 +29,7 @@ class LogFileSink(
     private val queue = ArrayBlockingQueue<String>(queueCapacity)
     private val signal = Semaphore(0)
     private val dropped = AtomicInteger()
-    private var out: OutputStream? = null
-    private var size = 0L
+    private val file = RotatingLogFile(dir, current, rotated, maxBytes)
     @Volatile private var stopped = false
 
     private val thread = Thread(::run, "strix-log-writer").apply {
@@ -123,49 +118,11 @@ class LogFileSink(
         }
     }
 
-    private fun writeLocked(text: String) {
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        try {
-            if (out == null) open()
-            if (size > 0 && size + bytes.size > maxBytes) rotate()
-            out!!.write(bytes)
-            size += bytes.size
-        } catch (e: IOException) {
-            Log.w(TAG, "log write failed: ${e.message}")
-            closeLocked()
-        }
-    }
+    private fun writeLocked(text: String) = file.write(text)
 
-    private fun open() {
-        dir.mkdirs()
-        size = current.length()
-        out = BufferedOutputStream(FileOutputStream(current, true))
-    }
+    private fun flushLocked() = file.flush()
 
-    private fun rotate() {
-        closeLocked()
-        rotated.delete()
-        if (!current.renameTo(rotated)) current.delete()
-        open()
-    }
-
-    private fun flushLocked() {
-        try {
-            out?.flush()
-        } catch (e: IOException) {
-            Log.w(TAG, "log flush failed: ${e.message}")
-            closeLocked()
-        }
-    }
-
-    private fun closeLocked() {
-        try {
-            out?.close()
-        } catch (_: IOException) {
-        }
-        out = null
-        size = 0
-    }
+    private fun closeLocked() = file.close()
 
     companion object {
         const val FILE_NAME = "strix.log"

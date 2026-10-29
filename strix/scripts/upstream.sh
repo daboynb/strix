@@ -4,6 +4,9 @@
 # Source it. URL templates MUST match tools/Dockerfile, ruby-msf/01-ruby/build-ruby.sh
 # and ruby-msf/02-msf/build-msf.sh.
 
+# shellcheck source=upstream-lookup.sh
+source "$(dirname "${BASH_SOURCE[0]}")/upstream-lookup.sh"
+
 # Latest version string (same format as the *_VERSION value) for a component key.
 upstream_latest() {
   case "$1" in
@@ -96,28 +99,4 @@ upstream_sig() {
     MARIADB)            echo "mariadb ${u}.asc" ;;
     CYRUS_SASL)         echo "cyrus-sasl ${u}.sig" ;;
   esac
-}
-
-# listing_latest <url> <regex> <prefix-to-strip> <suffix-to-strip>
-listing_latest() {
-  local v
-  v=$(curl -fsSL "$1" | grep -oE "$2" | sed -e "s|^$3||" -e "s|$4\$||" | sort -uV | tail -n1)
-  [ -n "$v" ] || { echo "no match for '$2' at $1" >&2; return 1; }
-  echo "$v"
-}
-
-# gh_release <owner/repo> <tag-prefix-to-strip>
-gh_release() {
-  local t
-  t=$(gh api "repos/$1/releases/latest" --jq .tag_name)
-  echo "${t#"$2"}"
-}
-
-# git_tag_latest <git-url> <tag-regex (without refs/tags/)> <prefix-to-strip>
-git_tag_latest() {
-  local v
-  v=$(git ls-remote --tags --refs "$1" | awk '{print $2}' | sed 's|^refs/tags/||' \
-      | grep -E "^$2\$" | sed "s|^$3||" | sort -V | tail -n1)
-  [ -n "$v" ] || { echo "no tag matching '$2' in $1" >&2; return 1; }
-  echo "$v"
 }

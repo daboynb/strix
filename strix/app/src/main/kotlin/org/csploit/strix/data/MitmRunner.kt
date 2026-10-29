@@ -7,20 +7,17 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
+import org.csploit.strix.data.MitmCommands.TETHER_FORWARD
+import org.csploit.strix.data.MitmCommands.cleanupCommands
+import org.csploit.strix.data.MitmCommands.killCommands
+import org.csploit.strix.data.MitmCommands.restoreCommands
+import org.csploit.strix.data.MitmCommands.setupCommands
+import org.csploit.strix.data.NetSnapshotParsing.parseChainRules
+import org.csploit.strix.data.NetSnapshotParsing.parsePolicy
+import org.csploit.strix.data.NetSnapshotParsing.sysctlValue
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-
-enum class MitmMode {
-    SNIFFER,
-    DNS_SPOOF,
-    KILL,
-}
-
-data class DnsEntry(
-    val hostname: String,
-    val address: String,
-)
 
 /**
  * Orchestrates MITM attacks on Android 13+.
@@ -49,22 +46,6 @@ class MitmRunner @Inject constructor(
     private val toolManager: ToolManager,
     private val networkManager: NetworkManager,
 ) {
-
-    /**
-     * System values captured before the first setup touched them, so cleanup
-     * restores the device exactly. Held until cleanup so a second setup (new
-     * run, or another host) doesn't overwrite the originals with our values.
-     */
-    internal data class NetSnapshot(
-        val iface: String,
-        val gateway: String,
-        val ipForward: String?,
-        val sendRedirectsAll: String?,
-        val sendRedirectsIface: String?,
-        val forwardPolicy: String?,
-        val tetherForwardRules: List<String>,
-        val addedDefaultRoute: Boolean,
-    )
 
     private data class CommandResult(val code: Int, val stdout: List<String>)
 
@@ -178,81 +159,6 @@ class MitmRunner @Inject constructor(
      * victim traffic to the server.
      */
 
-    // --- command builders (also used by cleanup for symmetry) ---
-
-    /** Insert [rule] (an `iptables` rule body beginning with the table/chain) only if absent. */
-    private fun insertIfAbsent(rule: String): String =
-        "iptables -C ${rule} 2>/dev/null || iptables -I ${rule}"
-
-    private fun setupCommands(iface: String, gateway: String, mode: MitmMode): List<String> {
-        val cmds = mutableListOf(
-            "ndc ipfwd enable strix",
-            "echo 1 > /proc/sys/net/ipv4/ip_forward",
-            "iptables -F $TETHER_FORWARD",               // remove DROP-all (surgical, not -F)
-            "iptables -P FORWARD ACCEPT",
-            insertIfAbsent("-t nat POSTROUTING -s 0/0 -j MASQUERADE"),
-            "ip route add default via $gateway dev $iface 2>/dev/null; true",
-            "echo 0 > /proc/sys/net/ipv4/conf/all/send_redirects; echo 0 > /proc/sys/net/ipv4/conf/$iface/send_redirects",
-            // ip rule has no -C; the explicit del-before-add keeps it single.
-            "ip rule del iif $iface lookup $iface pref 31500 2>/dev/null; " +
-                "ip rule add iif $iface lookup $iface pref 31500 2>/dev/null; true",
-        )
-        if (mode == MitmMode.DNS_SPOOF) {
-            cmds.add(insertIfAbsent(dnsRedirectRule(iface)))
-        }
-        return cmds
-    }
-
-    private fun cleanupCommands(iface: String, mode: MitmMode): List<String> {
-        val cmds = mutableListOf(
-            "ndc ipfwd disable strix",
-            "ip rule del iif $iface lookup $iface pref 31500 2>/dev/null; true",
-            // delete-until-absent: a prior unbalanced run may have left >1 copy.
-            deleteAll("-t nat POSTROUTING -s 0/0 -j MASQUERADE"),
-        )
-        if (mode == MitmMode.DNS_SPOOF) {
-            cmds.add(deleteAll(dnsRedirectRule(iface)))
-        }
-        return cmds
-    }
-
-    private fun restoreCommands(snap: NetSnapshot?, iface: String): List<String> {
-        val cmds = mutableListOf<String>()
-        snap?.forwardPolicy?.let { cmds.add("iptables -P FORWARD $it") }
-        snap?.sendRedirectsAll?.let {
-            cmds.add("echo $it > /proc/sys/net/ipv4/conf/all/send_redirects 2>/dev/null; true")
-        }
-        snap?.sendRedirectsIface?.let {
-            cmds.add("echo $it > /proc/sys/net/ipv4/conf/$iface/send_redirects 2>/dev/null; true")
-        }
-        snap?.ipForward?.let {
-            cmds.add("echo $it > /proc/sys/net/ipv4/ip_forward 2>/dev/null; true")
-        }
-        if (snap?.addedDefaultRoute == true) {
-            cmds.add("ip route del default via ${snap.gateway} dev ${snap.iface} 2>/dev/null; true")
-        }
-        return cmds
-    }
-
-    private fun dnsRedirectRule(iface: String): String =
-        "-t nat PREROUTING -i $iface -p udp --dport 53 -j REDIRECT --to-ports ${DnsSpoofServer.DEFAULT_PORT}"
-
-    /** Loop a `-D` until iptables reports the rule is gone, removing every copy. */
-    private fun deleteAll(rule: String): String =
-        "while iptables -C $rule 2>/dev/null; do iptables -D $rule 2>/dev/null || break; done; true"
-
-    private fun killCommands(targetIp: String, enable: Boolean): List<String> {
-        val rules = listOf(
-            "FORWARD -s $targetIp -p tcp -j REJECT --reject-with tcp-reset",
-            "FORWARD -d $targetIp -p tcp -j REJECT --reject-with tcp-reset",
-            "FORWARD -s $targetIp -j DROP",
-            "FORWARD -d $targetIp -j DROP",
-        )
-        return rules.map { rule ->
-            if (enable) insertIfAbsent(rule) else deleteAll(rule)
-        }
-    }
-
     // --- snapshot helpers ---
 
     private suspend fun captureSnapshot(iface: String, gateway: String): NetSnapshot {
@@ -269,21 +175,6 @@ class MitmRunner @Inject constructor(
             addedDefaultRoute = run("ip route show default").stdout.none { it.isNotBlank() },
         )
     }
-
-    private fun sysctlValue(raw: String?): String? =
-        raw?.trim()?.takeIf { it.all { c -> c.isDigit() } }
-
-    /** Extract the policy from `-P FORWARD ACCEPT` in `iptables -S FORWARD` output. */
-    private fun parsePolicy(lines: List<String>): String? =
-        lines.firstOrNull { it.startsWith("-P FORWARD ") }
-            ?.removePrefix("-P FORWARD ")?.trim()?.takeIf { it.isNotEmpty() }
-
-    /**
-     * Turn `iptables -S <chain>` output into re-insertable `-A ...` rule bodies,
-     * dropping the `-P`/`-N` chain declarations.
-     */
-    private fun parseChainRules(lines: List<String>): List<String> =
-        lines.filter { it.startsWith("-A ") }
 
     /** Run one command as its own su -c call, collecting stdout and the exit code. */
     private suspend fun run(command: String): CommandResult {
@@ -315,8 +206,6 @@ class MitmRunner @Inject constructor(
     }
 
     companion object {
-        private const val TETHER_FORWARD = "tetherctrl_FORWARD"
-
         val BASIC_AUTH_REGEX = Regex(
             """Authorization:\s*Basic\s+(\S+)""", RegexOption.IGNORE_CASE
         )

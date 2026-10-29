@@ -1,11 +1,8 @@
 package org.csploit.strix.data.bundle
 
-import org.csploit.strix.core.Logger
 import java.io.File
-import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
-import java.security.MessageDigest
 
 class InsufficientSpaceException(val needed: Long, val available: Long) :
     IOException("Not enough free space: need ${needed / 1_048_576} MB, have ${available / 1_048_576} MB")
@@ -22,14 +19,12 @@ class BundleInstaller(private val filesDir: File, private val fs: RootFs = RootF
     companion object {
         const val VERSION_FILE = ".bundle-version"
         const val SPACE_FACTOR = 1.15
-        private const val STAGING_PREFIX = ".staging-"
-        private const val OLD_PREFIX = ".old-"
     }
 
+    private val swapper = BundleSwapper(filesDir, fs)
     private var cleaned = false
 
     fun stagingDir(id: String) = File(filesDir, STAGING_PREFIX + id)
-    private fun oldDir(id: String) = File(filesDir, OLD_PREFIX + id)
 
     fun readInstalledJson(spec: BundleSpec): String? =
         File(filesDir, "${spec.primaryDir}/$VERSION_FILE").takeIf { it.isFile }?.readText()
@@ -61,21 +56,7 @@ class BundleInstaller(private val filesDir: File, private val fs: RootFs = RootF
     fun cleanupLeftovers() {
         if (cleaned) return
         cleaned = true
-        filesDir.listFiles()?.forEach { f ->
-            when {
-                f.name.startsWith(OLD_PREFIX) -> {
-                    f.listFiles()?.forEach { saved ->
-                        val live = File(filesDir, saved.name)
-                        if (!fs.exists(live)) {
-                            Logger.warning("BundleInstaller: restoring ${saved.name} from interrupted swap")
-                            fs.move(saved, live)
-                        }
-                    }
-                    fs.deleteTree(f)
-                }
-                f.name.startsWith(STAGING_PREFIX) -> fs.deleteTree(f)
-            }
-        }
+        swapper.repairLeftovers()
     }
 
     /**
@@ -131,67 +112,10 @@ class BundleInstaller(private val filesDir: File, private val fs: RootFs = RootF
     fun swap(spec: BundleSpec) {
         val staging = stagingDir(spec.id)
         if (!hasStaged(spec)) throw IOException("nothing staged for ${spec.id}")
-        val old = oldDir(spec.id)
-        if (!fs.deleteTree(old)) throw IOException("cannot clear $old")
-        old.mkdirs()
-        val installed = mutableListOf<String>()
-        try {
-            for (d in spec.liveDirs) {
-                val live = File(filesDir, d)
-                if (fs.exists(live) && !fs.move(live, File(old, d))) throw IOException("cannot move $live aside")
-            }
-            for (d in spec.liveDirs) {
-                if (!fs.move(File(staging, d), File(filesDir, d))) throw IOException("cannot install $d")
-                installed += d
-            }
-        } catch (e: IOException) {
-            Logger.error("BundleInstaller: swap of ${spec.id} failed, rolling back: ${e.message}")
-            for (d in spec.liveDirs) {
-                val live = File(filesDir, d)
-                val saved = File(old, d)
-                if (d in installed || fs.exists(saved)) fs.deleteTree(live)
-                if (fs.exists(saved)) fs.move(saved, live)
-            }
-            throw e
-        }
-        if (!fs.deleteTree(old)) Logger.warning("BundleInstaller: could not delete $old (will retry next start)")
-        fs.deleteTree(staging)
-        Logger.info("BundleInstaller: ${spec.id} swapped in")
+        swapper.swap(spec, staging)
     }
 
     fun discardStaged(spec: BundleSpec) {
         fs.deleteTree(stagingDir(spec.id))
     }
-
-    /** Counts and SHA-256-hashes every byte read; skip() reads so nothing bypasses the hash. */
-    private class HashingStream(input: InputStream) : FilterInputStream(input) {
-        private val digest = MessageDigest.getInstance("SHA-256")
-        var count = 0L
-            private set
-
-        override fun read(): Int = super.read().also {
-            if (it >= 0) { digest.update(it.toByte()); count++ }
-        }
-        override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also {
-            if (it > 0) { digest.update(b, off, it); count += it }
-        }
-        override fun skip(n: Long): Long {
-            val buf = ByteArray(minOf(n, 65536L).toInt().coerceAtLeast(1))
-            var left = n
-            while (left > 0) {
-                val r = read(buf, 0, minOf(left, buf.size.toLong()).toInt())
-                if (r < 0) break
-                left -= r
-            }
-            return n - left
-        }
-        override fun markSupported() = false
-        fun hexDigest(): String = digest.digest().toHex()
-    }
-
-    private class NonClosing(input: InputStream) : FilterInputStream(input) {
-        override fun close() {}
-    }
 }
-
-internal fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

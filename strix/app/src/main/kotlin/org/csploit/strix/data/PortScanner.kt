@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
-import org.csploit.strix.core.shellQuote
 import org.csploit.strix.domain.model.PortInfo
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,12 +33,6 @@ class PortScanner @Inject constructor(
     private val appSettings: AppSettings,
 ) {
     companion object {
-        // Matches: 80/tcp  open  http    Apache httpd 2.4.41
-        private val PORT_REGEX = Regex(
-            """(\d+)/(tcp|udp)\s+(open|filtered|closed)\s+(\S+)\s*(.*)"""
-        )
-        private val OS_REGEX = Regex("""OS details:\s*(.+)""")
-        private val PROGRESS_REGEX = Regex("""(\d+\.\d+)% done""")
         private val PORT_SPEC_REGEX = Regex("""^[0-9,\-]+$""")
 
         /**
@@ -78,22 +71,8 @@ class PortScanner @Inject constructor(
         }
 
         try {
-            val range = portRange?.ifBlank { null } ?: appSettings.defaultPortRange.ifBlank { null }
-            val portArg = if (range == null) {
-                "--top-ports 1000"
-            } else {
-                "-p " + shellQuote(normalizePortRange(range) ?: throw IllegalArgumentException("Invalid port range '$range'"))
-            }
-            val timing = appSettings.nmapTiming
-            val dnsArg = appSettings.dnsServer.ifBlank { null }?.let { "--dns-servers ${shellQuote(it.trim())}" } ?: ""
-            // Custom args are whitespace-separated nmap options: each token is
-            // passed as one quoted word so shell metacharacters stay literal.
-            val extraArgs = appSettings.customNmapArgs.trim().split(Regex("""\s+"""))
-                .filter { it.isNotEmpty() }
-                .joinToString(" ") { shellQuote(it) }
-
             processManager.execute(
-                command = "nmap -sS -sV -O $portArg -T$timing -Pn $dnsArg $extraArgs ${shellQuote(ip)}",
+                command = NmapCli.buildCommand(ip, portRange, appSettings),
                 toolsDir = toolManager.toolsPath,
                 workDir = toolManager.corePath,
             ).collect { event ->
@@ -101,23 +80,16 @@ class PortScanner @Inject constructor(
                     is ProcessEvent.StdoutLine -> {
                         val line = event.line
 
-                        PORT_REGEX.find(line)?.let { match ->
-                            val port = PortInfo(
-                                number = match.groupValues[1].toInt(),
-                                protocol = match.groupValues[2],
-                                state = match.groupValues[3],
-                                service = match.groupValues[4].ifBlank { null },
-                                version = match.groupValues[5].trim().ifBlank { null },
-                            )
+                        NmapCli.parsePort(line)?.let { port ->
                             updateSession(ip) { it.copy(ports = it.ports + port) }
                         }
 
-                        OS_REGEX.find(line)?.let { match ->
-                            updateSession(ip) { it.copy(os = match.groupValues[1].trim()) }
+                        NmapCli.parseOs(line)?.let { os ->
+                            updateSession(ip) { it.copy(os = os) }
                         }
 
-                        PROGRESS_REGEX.find(line)?.let { match ->
-                            updateSession(ip) { it.copy(progress = "${match.groupValues[1]}%") }
+                        NmapCli.parseProgress(line)?.let { progress ->
+                            updateSession(ip) { it.copy(progress = progress) }
                         }
                     }
                     is ProcessEvent.StderrLine -> Logger.debug("nmap stderr: ${event.line}")

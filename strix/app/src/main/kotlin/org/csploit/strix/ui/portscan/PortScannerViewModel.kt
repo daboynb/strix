@@ -15,39 +15,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ScanRegistry
-import org.csploit.strix.data.HttpFingerprintResult
-import org.csploit.strix.data.PortScanSession
 import org.csploit.strix.data.PortScanner
 import org.csploit.strix.data.RouterAnalyzer
-import org.csploit.strix.domain.model.DefaultCreds
-import org.csploit.strix.domain.model.PortInfo
 import org.csploit.strix.ui.navigation.Routes
 import javax.inject.Inject
-
-data class PortScannerUiState(
-    val isScanning: Boolean = false,
-    val isTesting: Boolean = false,
-    val ports: List<PortInfo> = emptyList(),
-    val os: String? = null,
-    val progress: String? = null,
-    val error: String? = null,
-    val fingerprint: HttpFingerprintResult? = null,
-    val credsResult: DefaultCreds? = null,
-    val credsTested: Boolean = false,
-    val hydraStatus: String? = null,
-)
-
-/** State owned by the VM (not by the singleton runner). The credential test is
- *  a side-operation that runs in [viewModelScope] and does not survive navigation;
- *  the fingerprint is stored in the [PortScanSession] by the scan task. */
-private data class LocalUiState(
-    val isTesting: Boolean = false,
-    val inputError: String? = null,
-    val credsResult: DefaultCreds? = null,
-    val credsTested: Boolean = false,
-    val hydraStatus: String? = null,
-    val scanCompleteHandled: Boolean = false,
-)
 
 @HiltViewModel
 class PortScannerViewModel @Inject constructor(
@@ -68,18 +39,7 @@ class PortScannerViewModel @Inject constructor(
         portScanner.sessions.map { it[ip] },
         _localState,
     ) { session, local ->
-        PortScannerUiState(
-            isScanning = session?.isScanning ?: false,
-            isTesting = local.isTesting,
-            ports = session?.ports ?: emptyList(),
-            os = session?.os,
-            progress = session?.progress,
-            error = local.inputError ?: session?.error,
-            fingerprint = session?.fingerprint,
-            credsResult = local.credsResult,
-            credsTested = local.credsTested,
-            hydraStatus = local.hydraStatus,
-        )
+        toUiState(session, local)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PortScannerUiState())
 
     private var scanJob: Job? = null

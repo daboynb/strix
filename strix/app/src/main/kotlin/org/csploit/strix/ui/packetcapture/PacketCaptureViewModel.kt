@@ -14,21 +14,8 @@ import kotlinx.coroutines.flow.stateIn
 import org.csploit.strix.core.ScanRegistry
 import org.csploit.strix.data.NetworkManager
 import org.csploit.strix.data.PacketCaptureRunner
-import org.csploit.strix.data.PacketCaptureSession
 import org.csploit.strix.ui.navigation.Routes
 import javax.inject.Inject
-
-data class PacketCaptureUiState(
-    val isRunning: Boolean = false,
-    val filter: String = "",
-    val verbose: Boolean = false,
-    val iface: String = "",
-    val packetCount: Int = 0,
-    val logLines: List<String> = emptyList(),
-)
-
-/** UI-controlled knobs (filter/verbose) live here; session data comes from the runner. */
-private data class LocalState(val filter: String, val verbose: Boolean)
 
 @HiltViewModel
 class PacketCaptureViewModel @Inject constructor(
@@ -101,14 +88,4 @@ class PacketCaptureViewModel @Inject constructor(
         super.onCleared()
         // captureJob lives in ScanRegistry.appScope and intentionally survives VM destruction.
     }
-
-    private fun PacketCaptureSession?.toUiState(local: LocalState, fallbackIface: String): PacketCaptureUiState =
-        PacketCaptureUiState(
-            isRunning = this?.isRunning ?: false,
-            filter = local.filter,
-            verbose = local.verbose,
-            iface = this?.iface?.takeIf { it.isNotEmpty() } ?: fallbackIface,
-            packetCount = this?.packetCount ?: 0,
-            logLines = this?.logLines ?: emptyList(),
-        )
 }

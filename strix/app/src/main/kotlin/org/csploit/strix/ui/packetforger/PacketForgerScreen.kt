@@ -3,7 +3,6 @@ package org.csploit.strix.ui.packetforger
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,34 +11,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import org.csploit.strix.ui.theme.StatusBarIcons
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PacketForgerScreen(
     onBack: () -> Unit,
@@ -49,37 +35,11 @@ fun PacketForgerScreen(
 
     Scaffold(
         topBar = {
-            StatusBarIcons(MaterialTheme.colorScheme.primaryContainer)
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Packet Forger")
-                        Text(viewModel.ip, style = MaterialTheme.typography.bodySmall)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (uiState.isSending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(12.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        IconButton(onClick = { viewModel.send() }) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
+            PacketForgerTopBar(
+                ip = viewModel.ip,
+                isSending = uiState.isSending,
+                onBack = onBack,
+                onSend = { viewModel.send() },
             )
         },
     ) { padding ->
@@ -91,48 +51,13 @@ fun PacketForgerScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Protocol selector
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Protocol.entries.forEach { proto ->
-                    FilterChip(
-                        selected = uiState.protocol == proto,
-                        onClick = { viewModel.setProtocol(proto) },
-                        label = { Text(proto.name) },
-                        enabled = !uiState.isSending,
-                    )
-                }
-            }
-
-            // Port
-            OutlinedTextField(
-                value = uiState.port,
-                onValueChange = { viewModel.setPort(it) },
-                label = { Text("Port") },
-                singleLine = true,
-                enabled = !uiState.isSending,
-                modifier = Modifier.fillMaxWidth(),
+            PacketForgerForm(
+                uiState = uiState,
+                onProtocol = { viewModel.setProtocol(it) },
+                onPort = { viewModel.setPort(it) },
+                onPayload = { viewModel.setPayload(it) },
+                onWaitResponse = { viewModel.setWaitResponse(it) },
             )
-
-            // Payload
-            OutlinedTextField(
-                value = uiState.payload,
-                onValueChange = { viewModel.setPayload(it) },
-                label = { Text("Payload") },
-                enabled = !uiState.isSending,
-                minLines = 3,
-                maxLines = 6,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // Wait response checkbox
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = uiState.waitResponse,
-                    onCheckedChange = { viewModel.setWaitResponse(it) },
-                    enabled = !uiState.isSending,
-                )
-                Text("Wait for response (5s timeout)")
-            }
 
             // WoL button
             if (viewModel.mac != null) {

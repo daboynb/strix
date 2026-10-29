@@ -13,25 +13,7 @@ import org.csploit.strix.data.NetworkManager
 import org.csploit.strix.data.ToolManager
 import org.csploit.strix.data.bundle.BundleUpdateManager
 import org.csploit.strix.domain.model.ExtractionState
-import org.csploit.strix.domain.model.NetworkInfo
 import javax.inject.Inject
-
-data class SplashUiState(
-    val step: StartupStep = StartupStep.WAITING_PERMISSIONS,
-    val hasRoot: Boolean? = null,
-    val extractionState: ExtractionState = ExtractionState.Idle,
-    val networkInfo: NetworkInfo? = null,
-    val error: String? = null,
-)
-
-enum class StartupStep {
-    WAITING_PERMISSIONS,
-    CHECKING_ROOT,
-    EXTRACTING_TOOLS,
-    DETECTING_NETWORK,
-    READY,
-    FAILED,
-}
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(

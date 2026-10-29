@@ -12,18 +12,6 @@ import kotlinx.coroutines.launch
 import org.csploit.strix.data.PacketForger
 import javax.inject.Inject
 
-enum class Protocol { TCP, UDP }
-
-data class PacketForgerUiState(
-    val protocol: Protocol = Protocol.TCP,
-    val port: String = "80",
-    val payload: String = "",
-    val waitResponse: Boolean = true,
-    val isSending: Boolean = false,
-    val response: String? = null,
-    val error: String? = null,
-)
-
 @HiltViewModel
 class PacketForgerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -71,11 +59,7 @@ class PacketForgerViewModel @Inject constructor(
         sendJob?.cancel()
         _uiState.value = state.copy(isSending = true, response = null, error = null)
 
-        val data = state.payload
-            .replace("\\r", "\r")
-            .replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .toByteArray()
+        val data = decodePayloadEscapes(state.payload)
 
         sendJob = viewModelScope.launch {
             val result = when (state.protocol) {
@@ -120,11 +104,6 @@ class PacketForgerViewModel @Inject constructor(
         sendJob?.cancel()
         sendJob = null
         _uiState.value = _uiState.value.copy(isSending = false)
-    }
-
-    private fun wolPayloadHex(mac: String): String {
-        val m = mac.replace(":", "")
-        return "FF".repeat(6) + m.uppercase().repeat(16)
     }
 
     override fun onCleared() {

@@ -100,15 +100,17 @@ MSF_VER=$(sed -nE '/^[[:space:]]*VERSION = "[0-9]/{s/^[[:space:]]*VERSION = "([0
 echo "${MSF_VER}" > "${BUNDLE_STAGING}/metasploit-framework/VERSION"
 echo "MSF version: ${MSF_VER}"
 
-# Remove unnecessary files to reduce size
+# Remove what is never used at runtime: VCS metadata, docs, tests, dev tooling.
+# Keep data/ (exploit resources and default wordlists are .txt files read by
+# modules), external/ (sources some modules load from the install root) and every
+# LICENSE/COPYING file (required when redistributing the gems).
 echo "Trimming MSF bundle..."
 cd "${BUNDLE_STAGING}/metasploit-framework"
 rm -rf .git .github .gitignore .rubocop* .yardopts
 rm -rf documentation/ docs/ docker/ test/ spec/ features/
-rm -rf external/ tools/dev/ tools/exploit/
+rm -rf tools/dev/
 find . -type f -name "*.md" -not -name "Gemfile*" -delete
-find . -type f -name "*.txt" -not -name "*.txt.erb" -delete
-find . -type f \( -name "CHANGELOG*" -o -name "LICENSE*" -o -name "COPYING*" \) -delete
+find . -type f -name "CHANGELOG*" -delete
 # Remove .o and .a files from gem native extensions (only .so needed)
 find . -type f \( -name "*.o" -o -name "*.a" \) -delete
 

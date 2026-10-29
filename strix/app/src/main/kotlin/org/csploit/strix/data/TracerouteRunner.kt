@@ -8,6 +8,7 @@ import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
 import org.csploit.strix.core.shellQuote
+import org.csploit.strix.data.TracerouteHopParser.parseHop
 import org.csploit.strix.domain.model.TracerouteHop
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,12 +25,6 @@ class TracerouteRunner @Inject constructor(
     private val processManager: ProcessManager,
     private val toolManager: ToolManager,
 ) {
-    companion object {
-        private val HOP_REGEX = Regex("""^\s*(\d+)\s+(.+)$""")
-        private val RTT_ADDR_REGEX = Regex("""(\d+\.?\d*)\s+ms\s+(.+)""")
-        private val HOST_IP_REGEX = Regex("""^(.+?)\s+\(([0-9.]+)\)$""")
-    }
-
     private val _sessions = MutableStateFlow<Map<String, TracerouteSession>>(emptyMap())
     val sessions: StateFlow<Map<String, TracerouteSession>> = _sessions.asStateFlow()
 
@@ -72,37 +67,6 @@ class TracerouteRunner @Inject constructor(
             throw e
         } finally {
             updateSession(ip) { it.copy(isTracing = false) }
-        }
-    }
-
-    private fun parseHop(line: String): TracerouteHop? {
-        val hopMatch = HOP_REGEX.find(line) ?: return null
-        val hopNumber = hopMatch.groupValues[1].toIntOrNull() ?: return null
-        val rest = hopMatch.groupValues[2].trim()
-
-        if (rest == "..." || rest.all { it == '*' || it == ' ' }) {
-            return TracerouteHop(hopNumber = hopNumber, rttMs = null, address = null, hostname = null)
-        }
-
-        val rttMatch = RTT_ADDR_REGEX.find(rest) ?: return null
-        val rtt = rttMatch.groupValues[1].toFloatOrNull()
-        val addrPart = rttMatch.groupValues[2].trim()
-
-        val hostIpMatch = HOST_IP_REGEX.find(addrPart)
-        return if (hostIpMatch != null) {
-            TracerouteHop(
-                hopNumber = hopNumber,
-                rttMs = rtt,
-                address = hostIpMatch.groupValues[2],
-                hostname = hostIpMatch.groupValues[1],
-            )
-        } else {
-            TracerouteHop(
-                hopNumber = hopNumber,
-                rttMs = rtt,
-                address = addrPart,
-                hostname = null,
-            )
         }
     }
 

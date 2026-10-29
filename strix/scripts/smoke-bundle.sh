@@ -6,7 +6,8 @@
 # Checks: manifest signature (unless ALLOW_UNSIGNED=1 and no .sig) + id/sha256/size,
 # safe extraction (no traversal/escaping links), expected files, every relevant ELF is
 # aarch64; msf also: VERSION files, key native gems + build markers, no gem installed
-# in two versions across Ruby's own gem dir and vendor/bundle.
+# in two versions across Ruby's own gem dir and vendor/bundle; DT_NEEDED of our own ELFs
+# satisfied by the bundle or Android system libs (tools: everything).
 # Versions to compare against come from strix/versions.env.
 set -euo pipefail
 
@@ -65,9 +66,15 @@ ANDROID_SYSTEM_LIBS="libc.so libm.so libdl.so liblog.so libz.so libandroid.so li
   libjnigraphics.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libOpenSLES.so
   libOpenMAXAL.so libvulkan.so libmediandk.so libneuralnetworks.so libsync.so
   libbinder_ndk.so libnativewindow.so libcamera2ndk.so libaaudio.so libamidi.so"
+# deps_check <dir>... : ELFs and shipped libs are searched under all the given dirs,
+# skipping paths that match a glob in DEPS_PRUNE (e.g. gem-shipped target payloads,
+# which our Ruby never loads).
+DEPS_PRUNE=()
 deps_check() {
-  local shipped elf need bad=0 n=0
-  shipped=" $(find "$1" \( -type f -o -type l \) -name '*.so*' -printf '%f ') "
+  local shipped elf need bad=0 n=0 g
+  local -a prune=()
+  for g in "${DEPS_PRUNE[@]}"; do prune+=(-not -path "$g"); done
+  shipped=" $(find "$@" \( -type f -o -type l \) -name '*.so*' "${prune[@]}" -printf '%f ') "
   while IFS= read -r -d '' elf; do
     file -b "$elf" | grep -q '^ELF ' || continue
     n=$((n+1))
@@ -75,10 +82,10 @@ deps_check() {
       [ -n "$need" ] || continue
       case " $ANDROID_SYSTEM_LIBS $shipped " in
         *" $need "*) ;;
-        *) bad=1; fail "${elf#"$1"/} needs $need, which is neither an Android system library nor in the bundle" ;;
+        *) bad=1; fail "${elf#"$root"/} needs $need, which is neither an Android system library nor in the bundle" ;;
       esac
     done < <(readelf -d "$elf" 2>/dev/null | sed -nE 's/.*\(NEEDED\).*\[(.*)\]/\1/p')
-  done < <(find "$1" -type f -print0)
+  done < <(find "$@" -type f "${prune[@]}" -print0)
   [ "$bad" = 1 ] || pass "shared library deps of $n ELF files are satisfied"
 }
 

@@ -17,35 +17,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.csploit.strix.core.Logger
 import org.csploit.strix.data.MsfRpcClient
 import org.csploit.strix.data.ToolManager
+import org.csploit.strix.data.meterpreterRead
+import org.csploit.strix.data.meterpreterRunSingle
+import org.csploit.strix.data.sessionList
+import org.csploit.strix.data.shellRead
+import org.csploit.strix.data.shellWrite
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
-
-enum class SessionKind { SHELL, METERPRETER, UNKNOWN }
-
-sealed interface ShellDialog {
-    data class Upload(val pickedUri: Uri? = null, val sourcePath: String? = null) : ShellDialog
-    data object Download : ShellDialog
-    data class ScreenshotPreview(val path: String) : ShellDialog
-}
-
-data class ShellUiState(
-    val sessionId: Int = 0,
-    val kind: SessionKind = SessionKind.UNKNOWN,
-    val output: List<String> = emptyList(),
-    val input: String = "",
-    val dialog: ShellDialog? = null,
-    val pendingScreenshotPath: String? = null,
-    val error: String? = null,
-    /** Session no longer exists (or the daemon is unreachable): polling stopped, input disabled. */
-    val sessionClosed: Boolean = false,
-)
 
 @HiltViewModel
 class ShellViewModel @Inject constructor(
@@ -177,37 +161,10 @@ class ShellViewModel @Inject constructor(
 
     // --- helpers ---
 
-    private fun downloadsDir(): File {
-        val dir = File(toolManager.corePath, "msf_downloads")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
+    private fun downloadsDir(): File = msfDownloadsDir(toolManager.corePath)
 
-    private suspend fun copyUriToFiles(uri: Uri): String? = withContext(Dispatchers.IO) {
-        try {
-            val name = queryDisplayName(uri) ?: "upload_${System.currentTimeMillis()}"
-            val dir = File(toolManager.corePath, "msf_uploads")
-            if (!dir.exists()) dir.mkdirs()
-            val out = File(dir, name)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                out.outputStream().use { input.copyTo(it) }
-            }
-            out.setReadable(true, false)
-            out.absolutePath
-        } catch (e: Exception) {
-            Logger.warning("ShellVM: copyUriToFiles failed: ${e.message}")
-            null
-        }
-    }
-
-    private fun queryDisplayName(uri: Uri): String? {
-        return runCatching {
-            context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-            }
-        }.getOrNull()
-    }
+    private suspend fun copyUriToFiles(uri: Uri): String? =
+        copyUriToMsfUploads(context, toolManager.corePath, uri)
 
     private fun detectKindThenStartPolling() {
         viewModelScope.launch {
@@ -215,12 +172,7 @@ class ShellViewModel @Inject constructor(
             val (kind, rawType) = runCatching {
                 val sessions = rpcClient.sessionList()
                 val type = sessions.firstOrNull { it.id == sid }?.type ?: ""
-                val k = when {
-                    type.contains("meterpreter", ignoreCase = true) -> SessionKind.METERPRETER
-                    type.contains("shell", ignoreCase = true) -> SessionKind.SHELL
-                    else -> SessionKind.UNKNOWN
-                }
-                k to type
+                sessionKindOf(type) to type
             }.getOrElse { SessionKind.UNKNOWN to "sessionList failed: ${it.message}" }
             Logger.info("ShellVM: session $sid kind=$kind rawType='$rawType'")
             _uiState.value = _uiState.value.copy(kind = kind)

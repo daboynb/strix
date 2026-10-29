@@ -5,10 +5,7 @@ import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
 
 /**
  * Minimal HTTP client for bundle downloads: explicit timeouts, manual redirect
@@ -23,11 +20,6 @@ class BundleDownloader(
     private val connectTimeoutMs: Int = 15_000,
     private val readTimeoutMs: Int = 30_000,
 ) {
-    companion object {
-        private const val MAX_REDIRECTS = 5
-        private const val USER_AGENT = "strix-bundle-updater"
-    }
-
     /** GET a small resource fully into memory (API responses, manifests, signatures). */
     fun fetchBytes(url: String, maxBytes: Int, accept: String? = null): ByteArray {
         val conn = open(url, buildMap { accept?.let { put("Accept", it) } })
@@ -107,52 +99,10 @@ class BundleDownloader(
         return dest
     }
 
-    /** Open [url] following up to [MAX_REDIRECTS] redirects, re-sending [headers] on every hop. */
-    internal fun open(url: String, headers: Map<String, String>): HttpURLConnection {
-        var current = URL(url)
-        repeat(MAX_REDIRECTS + 1) {
-            if (requireHttps && current.protocol != "https") throw IOException("refusing non-https URL $current")
-            val conn = (current.openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false
-                connectTimeout = connectTimeoutMs
-                readTimeout = readTimeoutMs
-                setRequestProperty("User-Agent", USER_AGENT)
-                headers.forEach { (k, v) -> setRequestProperty(k, v) }
-            }
-            val code = conn.responseCode
-            if (code !in 300..399 || code == 304) return conn
-            val location = conn.getHeaderField("Location") ?: throw IOException("redirect without Location")
-            conn.disconnect()
-            current = URL(current, location)
-        }
-        throw IOException("too many redirects for $url")
-    }
+    /** Open [url] following redirects, re-sending [headers] on every hop. */
+    internal fun open(url: String, headers: Map<String, String>): HttpURLConnection =
+        openFollowingRedirects(url, headers, requireHttps, connectTimeoutMs, readTimeoutMs)
 
     private fun parseRangeStart(header: String): Long? =
         Regex("bytes (\\d+)-").find(header)?.groupValues?.get(1)?.toLongOrNull()
-
-    private fun readCapped(input: InputStream, max: Int): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
-        val buf = ByteArray(8192)
-        while (true) {
-            val n = input.read(buf)
-            if (n < 0) break
-            if (out.size() + n > max) throw IOException("response larger than $max bytes")
-            out.write(buf, 0, n)
-        }
-        return out.toByteArray()
-    }
-}
-
-fun sha256(file: File): String {
-    val md = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buf = ByteArray(65536)
-        while (true) {
-            val n = input.read(buf)
-            if (n < 0) break
-            md.update(buf, 0, n)
-        }
-    }
-    return md.digest().toHex()
 }

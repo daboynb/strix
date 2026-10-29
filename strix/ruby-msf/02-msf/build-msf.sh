@@ -238,9 +238,31 @@ RUBY_VER_DIR=$(find vendor/bundle/ruby -mindepth 1 -maxdepth 1 -type d -printf '
 [ -n "${RUBY_VER_DIR}" ] || { echo "FAIL: vendor/bundle/ruby is empty"; exit 1; }
 GEM_BASE="vendor/bundle/ruby/${RUBY_VER_DIR}/gems"
 
-# Elimina ports x86_64 di nokogiri (libgumbo+libxml2 precompilati per host)
-# per forzare ricompilazione per aarch64 target
+# The host `bundle install` leaves x86_64 mini_portile builds in the gem trees
+# (<gem>/ports/<host>, <gem>/ext/*/ports/<host> + its <name>-<ver>-<host>.installed
+# checkpoint, <gem>/ext/*/tmp/<host>: libraries,
+# objects, executables like sqlite3's bin/sqlite3). They are host build products,
+# not gem content: drop them so nothing x86_64 is shipped or reused by the cross build.
+# nokogiri in particular would re-activate its x86_64 libgumbo.a (port path + .installed
+# checkpoint named after the host RUBY_PLATFORM) and fail gumbo_parse_with_options;
+# without it libgumbo is rebuilt for aarch64 from the gem's gumbo-parser sources with
+# $CC/$AR. The gem-root nokogiri ports/ (source archives, unused with
+# --use-system-libraries) is what nokogiri's own post-build clean removes.
+# (the build host is always x86_64, see ../build.sh; the triplet spelling varies by
+# recipe: x86_64-linux, x86_64-linux-gnu, ...)
+while IFS= read -r -d '' d; do
+    echo "  removing host build ${d#"${GEM_BASE}"/}"
+    rm -rf "$d"
+done < <(find ${GEM_BASE} -mindepth 2 -maxdepth 5 \( -path '*/ports/*' -o -path '*/ext/*/tmp/*' \) \
+             \( \( -type d -name 'x86_64-*' \) -o \( -type f -name '*-x86_64-*.installed' \) \) \
+             -not -path '*/metasploit-payloads-*' -not -path '*/metasploit_payloads-mettle-*' \
+             -prune -print0)
 rm -rf ${GEM_BASE}/nokogiri-*/ports
+
+# Every .so we cross-compile or copy (absolute paths under ${MSF_DIR}): the only
+# msf files FASE 6 strips. Gem-shipped binaries (payloads, data) are never touched.
+BUILT_SO_LIST=/tmp/built_so.list
+: > "${BUILT_SO_LIST}"
 
 CROSS_OK=0
 CROSS_FAIL=0
@@ -298,17 +320,22 @@ for gemdir in ${GEM_BASE}/*/; do
             cd ${MSF_DIR}; continue
         fi
 
-        SO_FILE=$(find . -name "*.so" -newer Makefile -print -quit)
-        if [ -z "$SO_FILE" ]; then
+        SO_FILES=$(find "$PWD" -name "*.so" -newer Makefile)
+        if [ -z "$SO_FILES" ]; then
             echo "OK: ${gemname}/${extbase} (make succeeded, no .so output)"
             mark_gem "${gemname}" PASS
-        elif file "$SO_FILE" | grep -q "aarch64"; then
-            echo "PASS: ${gemname} -> $(basename "$SO_FILE")"
-            mark_gem "${gemname}" PASS
-        else
-            echo "FAIL: ${gemname}/${extbase} produced a non-aarch64 .so: $(file "$SO_FILE")"
-            mark_gem "${gemname}" FAIL
         fi
+        while IFS= read -r SO_FILE; do
+            [ -n "$SO_FILE" ] || continue
+            if file "$SO_FILE" | grep -q "aarch64"; then
+                echo "PASS: ${gemname} -> $(basename "$SO_FILE")"
+                echo "$SO_FILE" >> "${BUILT_SO_LIST}"
+                mark_gem "${gemname}" PASS
+            else
+                echo "FAIL: ${gemname}/${extbase} produced a non-aarch64 .so: $(file "$SO_FILE")"
+                mark_gem "${gemname}" FAIL
+            fi
+        done <<< "$SO_FILES"
 
         cd ${MSF_DIR}
     done < <(find "${gemdir}ext" -maxdepth 5 -name "extconf.rb" | sort)
@@ -326,6 +353,7 @@ for gemdir in ${GEM_BASE}/*/; do
             SO_NAME=$(basename "$so")
             while IFS= read -r target; do
                 cp -f "$so" "$target"
+                realpath "$target" >> "${BUILT_SO_LIST}"
                 echo "  $(basename "$(dirname "$(dirname "$target")")"): $SO_NAME"
             done < <(find "${gemdir}lib" -name "$SO_NAME")
         fi
@@ -333,74 +361,19 @@ for gemdir in ${GEM_BASE}/*/; do
 done
 
 # ============================================================
-# FASE 5.55: Verifica e fallback nokogiri
+# FASE 5.55: Verifica nokogiri
 # ============================================================
+# nokogiri is built by the FASE 5 loop like every other gem (an extconf/make failure
+# there is fatal in the summary); here only check that lib/ got the aarch64 .so.
 echo ""
 echo "=== FASE 5.55: Nokogiri check ==="
 NOKO_DIR=$(find ${GEM_BASE} -maxdepth 1 -name "nokogiri-*" -type d -print -quit)
-# Risolvi in path assoluto (GEM_BASE è relativo a MSF_DIR)
-[ -n "$NOKO_DIR" ] && NOKO_DIR=$(cd ${MSF_DIR} && realpath "${NOKO_DIR}")
-if [ -n "$NOKO_DIR" ]; then
-    NOKO_LIB_SO=$(find "${NOKO_DIR}/lib" -name "nokogiri.so" -print -quit)
-    if [ -z "$NOKO_LIB_SO" ] || ! file "$NOKO_LIB_SO" | grep -q "aarch64"; then
-        echo "nokogiri.so mancante o x86_64 — ricompilo..."
-        cd "${NOKO_DIR}/ext/nokogiri"
-        rm -f *.o *.so Makefile
-        rm -rf "${NOKO_DIR}/ports"
-
-        # --gumbo-dev: compila gumbo inline (evita ensure_func check che
-        # fallisce in cross-compilation per conflitto dichiarazione void vs return type)
-        ${RUBY_HOST}/bin/ruby extconf.rb \
-            --use-system-libraries \
-            --gumbo-dev \
-            --with-xml2-dir=${DEPS} \
-            --with-xslt-dir=${DEPS} \
-            --with-xml2-include=${DEPS}/include/libxml2 \
-            --with-xml2-lib=${DEPS}/lib \
-            --with-xslt-include=${DEPS}/include \
-            --with-xslt-lib=${DEPS}/lib \
-            --with-zlib-dir=${DEPS} \
-            --with-opt-dir=${DEPS} \
-            --enable-system-libraries \
-            || echo "WARN: nokogiri extconf.rb exited non-zero"
-
-        if [ -f Makefile ]; then
-            sed -i 's|-lpthread||g; s|-lrt||g; s|--fix-cortex-a53-843419||g' Makefile
-            make clean
-            make -j$(nproc) V=1 || echo "WARN: nokogiri make exited non-zero"
-            NOKO_SO=$(find . -name "nokogiri.so" -print -quit)
-            if [ -n "$NOKO_SO" ] && file "$NOKO_SO" | grep -q "aarch64"; then
-                echo "PASS: nokogiri.so aarch64"
-                # Copia nella directory lib corretta (crea se necessario)
-                NOKO_LIB_DST=$(find "${NOKO_DIR}/lib" -type d -name "nokogiri" -print -quit)
-                if [ -z "$NOKO_LIB_DST" ]; then
-                    mkdir -p "${NOKO_DIR}/lib/nokogiri"
-                    NOKO_LIB_DST="${NOKO_DIR}/lib/nokogiri"
-                fi
-                cp -f "$NOKO_SO" "${NOKO_LIB_DST}/nokogiri.so"
-                echo "  Copied to ${NOKO_LIB_DST}/nokogiri.so"
-                # Aggiorna marker per il riepilogo finale
-                # Fallback riuscito: sovrascrive un eventuale FAIL della FASE 5
-                echo "PASS" > "/tmp/gem_$(basename "${NOKO_DIR}")"
-            else
-                echo "FAIL: nokogiri cross-compilation fallita"
-                [ -n "$NOKO_SO" ] && file "$NOKO_SO"
-                echo "--- mkmf.log ---"
-                [ -f mkmf.log ] && tail -n 30 mkmf.log
-                exit 1
-            fi
-        else
-            echo "FAIL: extconf.rb non ha generato Makefile"
-            echo "--- mkmf.log ---"
-            [ -f mkmf.log ] && tail -n 30 mkmf.log
-            exit 1
-        fi
-        cd ${MSF_DIR}
-    else
-        echo "nokogiri.so OK: $(file "$NOKO_LIB_SO")"
-    fi
+[ -n "$NOKO_DIR" ] || { echo "FAIL: nokogiri gem non trovata"; exit 1; }
+NOKO_LIB_SO="${NOKO_DIR}/lib/nokogiri/nokogiri.so"
+if [ -f "$NOKO_LIB_SO" ] && file "$NOKO_LIB_SO" | grep -q "aarch64"; then
+    echo "nokogiri.so OK: $(file -b "$NOKO_LIB_SO")"
 else
-    echo "FAIL: nokogiri gem non trovata"
+    echo "FAIL: ${NOKO_LIB_SO} missing or not aarch64${NOKO_LIB_SO:+: $(file -b "$NOKO_LIB_SO" 2>&1)}"
     exit 1
 fi
 
@@ -437,6 +410,7 @@ for gemdir in ${GEM_BASE}/*/; do
     while IFS= read -r so; do
         if file "$so" | grep -q "aarch64"; then
             cp -f "$so" "${EXT_BASE}/${gemname}/"
+            realpath "${EXT_BASE}/${gemname}/$(basename "$so")" >> "${BUILT_SO_LIST}"
         fi
     done < <(find "${gemdir}ext" -name "*.so")
 done
@@ -552,17 +526,46 @@ find ${OUTPUT}/metasploit-framework/vendor/bundle -path "*/extensions/x86_64*" -
 # Copia libpq.so.5 per il device
 cp "$PQ_SO" ${OUTPUT}/libpq.so.5
 
-# Strip debug info from every aarch64 ELF with the NDK llvm-strip (host `strip`
-# can't handle aarch64 objects). Non-ELF files (scripts) are left alone.
-echo "Stripping aarch64 ELF files..."
+# Strip debug info with the NDK llvm-strip (host `strip` can't handle aarch64 objects),
+# only from binaries we built: every aarch64 ELF of our Ruby + libpq, and in MSF exactly
+# the .so files listed in ${BUILT_SO_LIST}. Gem-shipped prebuilt files (target payloads
+# of metasploit-payloads / metasploit_payloads-mettle, data/) stay byte-for-byte.
+echo "Stripping aarch64 ELF files we built..."
 STRIPPED=0
+strip_elf() { # <file>: must be an aarch64 ELF
+    file -b "$1" | grep -q '^ELF 64-bit.*ARM aarch64' \
+        || { echo "FAIL: strip target is not an aarch64 ELF: $1 ($(file -b "$1"))"; exit 1; }
+    llvm-strip --strip-debug "$1"
+    STRIPPED=$((STRIPPED+1))
+}
 while IFS= read -r -d '' f; do
-    if file -b "$f" | grep -q '^ELF 64-bit.*ARM aarch64'; then
-        llvm-strip --strip-debug "$f"
-        STRIPPED=$((STRIPPED+1))
-    fi
-done < <(find ${OUTPUT}/ruby-android ${OUTPUT}/metasploit-framework ${OUTPUT}/libpq.so.5 -type f \( -name '*.so' -o -name '*.so.*' -o -path '*/bin/*' \) -print0)
+    if file -b "$f" | grep -q '^ELF '; then strip_elf "$f"; fi
+done < <(find ${OUTPUT}/ruby-android ${OUTPUT}/libpq.so.5 -type f -print0)
+[ -s "${BUILT_SO_LIST}" ] || { echo "FAIL: ${BUILT_SO_LIST} is empty"; exit 1; }
+while IFS= read -r so; do
+    out="${OUTPUT}/metasploit-framework/${so#"${MSF_DIR}"/}"
+    [ "$out" != "${OUTPUT}/metasploit-framework/${so}" ] || { echo "FAIL: ${so} is outside ${MSF_DIR}"; exit 1; }
+    [ -f "$out" ] || { echo "FAIL: built ${so} missing from the output"; exit 1; }
+    strip_elf "$out"
+done < <(sort -u "${BUILT_SO_LIST}")
 echo "Stripped: ${STRIPPED} files"
+
+# C++ extensions (eventmachine) are linked by the NDK clang++ against libc++_shared.so,
+# which is not an Android system library: ship the NDK's copy (unmodified) in
+# ruby-android/lib, the LD_LIBRARY_PATH of msfrpcd (MsfDaemon), like libpq.so.5.
+NEED_CXX=0
+while IFS= read -r so; do
+    if llvm-readelf -d "$so" | grep -q 'NEEDED.*\[libc++_shared\.so\]'; then
+        echo "  $(basename "$so") needs libc++_shared.so"
+        NEED_CXX=1
+    fi
+done < <(sort -u "${BUILT_SO_LIST}")
+if [ "${NEED_CXX}" = 1 ]; then
+    CXX_SHARED="${TOOLCHAIN}/sysroot/usr/lib/${TARGET}/libc++_shared.so"
+    [ -f "${CXX_SHARED}" ] || { echo "FAIL: ${CXX_SHARED} missing"; exit 1; }
+    cp "${CXX_SHARED}" ${OUTPUT}/ruby-android/lib/
+    echo "Included libc++_shared.so (NDK)"
+fi
 
 echo "MSF: $(find ${OUTPUT}/metasploit-framework -type f | wc -l) files, $(du -sh ${OUTPUT}/metasploit-framework | cut -f1)"
 
