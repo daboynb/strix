@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
@@ -6,7 +7,6 @@ echo "=== Building libpcap ${LIBPCAP_VERSION} ==="
 cd /opt/src/libpcap-${LIBPCAP_VERSION}
 
 # Clean any previous build
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 ./configure \
   --host=${TARGET} \

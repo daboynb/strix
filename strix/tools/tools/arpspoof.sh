@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
@@ -178,4 +179,4 @@ ${STRIP} ${PREFIX}/bin/arpspoof
 
 echo "=== arpspoof installed ==="
 ls -lh ${PREFIX}/bin/arpspoof
-file ${PREFIX}/bin/arpspoof | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'
+file ${PREFIX}/bin/arpspoof | grep -o 'ARM aarch64'

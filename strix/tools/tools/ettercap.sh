@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
@@ -153,6 +154,7 @@ if ! patch -p1 --forward < src/ec_sniff_unified_android.patch 2>/dev/null; then
   }' src/ec_sniff_unified.c
 fi
 rm -f src/ec_sniff_unified_android.patch
+grep -q "send_to_L2(po)" src/ec_sniff_unified.c || { echo "FAIL: L2 forwarding patch not applied" >&2; exit 1; }
 echo "  Applied Android L2 forwarding fallback patch"
 
 # --- Patch 5b: send_to_L3 fallback to send_to_L2 on Android ---
@@ -166,7 +168,8 @@ perl -0777 -i -pe 's/if\(l == NULL\)\s*\n\s*return -E_NOTHANDLED;/if(l == NULL)\
 if grep -q "return send_to_L2(po);" src/ec_send.c; then
   echo "  Applied send_to_L3 → send_to_L2 fallback patch"
 else
-  echo "  WARNING: send_to_L3 patch not applied — dns_spoof replies may not leave the device"
+  echo "FAIL: send_to_L3 patch not applied — dns_spoof replies would not leave the device" >&2
+  exit 1
 fi
 
 # INSTALL_PREFIX must match the runtime path on Android device
@@ -258,7 +261,8 @@ if [ -n "${ETTERCAP_BIN}" ]; then
   # Verify it's statically linked (no libettercap.so dependency)
   readelf -d ${PREFIX}/bin/ettercap 2>/dev/null | grep NEEDED || true
 else
-  echo "WARNING: ettercap build failed — binary not found"
+  echo "FAIL: ettercap build failed — binary not found" >&2
+  exit 1
 fi
 
 # Copy shared libs (ettercap always builds as dynamic despite BUILD_SHARED_LIBS=OFF)
@@ -294,10 +298,8 @@ done
 mkdir -p ${PREFIX}/etc/ettercap ${PREFIX}/share/ettercap
 cd /opt/src/ettercap-${ETTERCAP_VERSION}/share
 # etter.conf doesn't exist as-is; CMake generates it from etter.conf.v4/v6
-if [ -f etter.conf.v4 ]; then
-  cp etter.conf.v4 ${PREFIX}/etc/ettercap/etter.conf
-  echo "  Created etter.conf from etter.conf.v4"
-fi
+cp etter.conf.v4 ${PREFIX}/etc/ettercap/etter.conf
+echo "  Created etter.conf from etter.conf.v4"
 # Files loaded via open_data("etc",...) — go in etc/ettercap/
 for f in etter.dns etter.mdns etter.nbns; do
   [ -f "$f" ] && cp "$f" ${PREFIX}/etc/ettercap/
@@ -309,6 +311,9 @@ for f in etter.fields etter.finger.os etter.finger.mac \
   [ -f "$f" ] && cp "$f" ${PREFIX}/share/ettercap/
 done
 echo "  Copied ettercap data files to ${PREFIX}/share/ettercap/"
+# Files the app depends on (ToolsExtractor patches etter.conf; dns_spoof reads etter.dns)
+ls -l ${PREFIX}/etc/ettercap/etter.conf ${PREFIX}/etc/ettercap/etter.dns \
+      ${PREFIX}/lib/libettercap.so* ${PREFIX}/lib/ettercap/ec_dns_spoof.so
 
 # Reset flags
 export CFLAGS="-fPIC -O2"

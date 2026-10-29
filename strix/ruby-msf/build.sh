@@ -1,71 +1,45 @@
 #!/bin/bash
 # ============================================================
-# Build completo: Ruby + MSF per Android ARM64
+# Build completo: Ruby + MSF per Android ARM64 (host x86_64, Docker + buildx)
 #
-# Produce in /tmp/ruby-android-output/:
-#   ruby-android/             — Ruby 3.3.6 cross-compilato
+# Una sola `docker buildx build` multi-stage (Dockerfile: ruby -> msf -> export),
+# versioni/checksum da strix/versions.env. Produce in ${BUILD_OUTPUT}
+# (default ruby-msf/output/, svuotata a ogni build):
+#   ruby-android/             — Ruby cross-compilato
 #   metasploit-framework/     — MSF con gem native aarch64
 #   libpq.so.5                — PostgreSQL client lib
+#   android-deps/lib/ossl-modules/ (solo se OpenSSL produce il legacy provider)
 #
-# Requisiti: Docker
-# Tempo stimato: ~30-45 min (prima build, poi cache Docker)
+# Tempo stimato: ~1-3 h (prima build, poi cache BuildKit)
+# Prossimo passo: ./create-bundle.sh
 # ============================================================
-
-set -e
+set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-OUTPUT=/tmp/ruby-android-output
+# shellcheck source=../scripts/lib.sh
+source "${SCRIPT_DIR}/../scripts/lib.sh"
+
+OUTPUT=${BUILD_OUTPUT:-${SCRIPT_DIR}/output}
+LOG="${SCRIPT_DIR}/build.log"
 
 echo "============================================"
 echo "  RUBY + MSF ANDROID BUILD"
-echo "  $(date)"
+echo "  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "  Output: ${OUTPUT}"
+echo "  Log:    ${LOG}"
 echo "============================================"
-echo ""
 
-# ============================================================
-# Stage 1: Ruby + dipendenze
-# ============================================================
-echo "=== STAGE 1: Ruby cross-compilation ==="
+fresh_dir "${OUTPUT}"
+bundle_docker_build "${SCRIPT_DIR}" "${OUTPUT}" "${LOG}"
 
-cd "${SCRIPT_DIR}/01-ruby"
-docker build -t ruby-android-build . 2>&1 | tail -5
-
-echo "Running build (this takes a while)..."
-mkdir -p ${OUTPUT}
-docker run --rm \
-    -v ${OUTPUT}:/output \
-    ruby-android-build \
-    2>&1 | tee ${OUTPUT}/01-ruby-build.log | grep -E "^(PASS|FAIL|===|Ext:|ruby-)"
+for p in ruby-android/bin/ruby metasploit-framework/msfconsole libpq.so.5; do
+  [ -e "${OUTPUT}/${p}" ] || die "build finished but ${OUTPUT}/${p} is missing"
+done
 
 echo ""
-
-# ============================================================
-# Stage 2: MSF bundle + cross-compile native gems
-# ============================================================
-echo "=== STAGE 2: MSF bundle ==="
-
-cd "${SCRIPT_DIR}/02-msf"
-docker build -t msf-android-build . 2>&1 | tail -5
-
-echo "Running MSF build (this takes a while)..."
-docker run --rm \
-    -v ${OUTPUT}:/output \
-    msf-android-build \
-    2>&1 | tee ${OUTPUT}/02-msf-build.log | grep -E "^(PASS|FAIL|===|DONE|Gemme|MSF:)"
-
-echo ""
-
-# ============================================================
-# Riepilogo
-# ============================================================
 echo "============================================"
 echo "  BUILD COMPLETATO"
 echo "============================================"
+ls -lh "${OUTPUT}/"
 echo ""
-echo "Output in: ${OUTPUT}/"
-ls -lh ${OUTPUT}/ 2>/dev/null
-echo ""
-echo "Prossimo passo:"
-echo "  ./create-bundle.sh"
-echo ""
-echo "============================================"
+echo "Prossimo passo: ./create-bundle.sh"

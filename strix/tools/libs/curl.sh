@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building curl ${CURL_VERSION} ==="
 cd /opt/src/curl-${CURL_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 export CFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"

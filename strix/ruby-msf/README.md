@@ -17,28 +17,29 @@ Cross-compilazione di Ruby 3.3.6 e Metasploit Framework 6.4.x per `aarch64-linux
 ## Build
 
 ```bash
-./build.sh          # Docker pipeline (~30-45 min)
-./create-bundle.sh  # crea ruby-msf-bundle.tar.gz.bin per APK assets
+./build.sh          # docker buildx multi-stage (ruby -> msf -> export), ~1-3 h
+ALLOW_UNSIGNED=1 ./create-bundle.sh   # locale; in CI firma con BUNDLE_SIGNING_KEY
 ```
 
-Due stage Docker in sequenza:
-1. **01-ruby**: Cross-compila Ruby 3.3.6 + dipendenze (OpenSSL, zlib, libyaml, libffi)
-2. **02-msf**: Scarica MSF, bundle install, cross-compila tutte le ext native
+Versioni, checksum SHA256, tag+commit MSF e immagine base (con digest) sono in
+`../versions.env` (unica fonte). Un solo `Dockerfile` multi-stage:
+1. **ruby**: `01-ruby/build-ruby.sh` cross-compila Ruby + dipendenze (OpenSSL, zlib, libyaml, libffi)
+2. **msf**: `02-msf/build-msf.sh` clona MSF al tag pinnato, bundle install, cross-compila le ext native, strip con `llvm-strip` dell'NDK
+3. **export**: il risultato viene esportato in `output/` (svuotata a ogni build; override con `BUILD_OUTPUT`)
 
-Output in `/tmp/ruby-android-output/`.
+Qualsiasi errore (download, checksum, make, gem non cross-compilata) fa fallire la build.
+`create-bundle.sh` produce `ruby-msf-bundle.tar.gz` + `ruby-msf-bundle.json` (manifest) + `.json.sig`
+(ECDSA P-256, vedi `../scripts/sign-bundle.sh`).
 
 ## Struttura
 
 ```
 ruby-msf/
-├── build.sh              # Orchestratore
-├── create-bundle.sh      # Crea asset per APK
-├── 01-ruby/
-│   ├── Dockerfile
-│   └── build-ruby.sh
-└── 02-msf/
-    ├── Dockerfile
-    └── build-msf.sh
+├── build.sh              # Orchestratore host (docker buildx)
+├── create-bundle.sh      # Crea asset per APK + manifest firmato
+├── Dockerfile            # Multi-stage ruby -> msf -> export
+├── 01-ruby/build-ruby.sh
+└── 02-msf/build-msf.sh
 ```
 
 ## Sul device (dopo estrazione da APK)

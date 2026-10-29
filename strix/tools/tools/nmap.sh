@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building nmap ${NMAP_VERSION} ==="
 cd /opt/src/nmap-${NMAP_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 # Patch libdnet for Android NDK: IN6_IS_ADDR_UNSPECIFIED macro expects
 # struct in6_addr* but libdnet uses its own struct ip6_addr
@@ -50,12 +50,13 @@ ${STRIP} ${PREFIX}/bin/nmap
 
 # Data files
 cp nmap-os-db nmap-service-probes nmap-services nmap-protocols \
-   nmap-mac-prefixes nmap-payloads nmap-rpc ${PREFIX}/share/nmap/ 2>/dev/null || true
+   nmap-mac-prefixes nmap-rpc ${PREFIX}/share/nmap/
+# nmap-payloads was dropped upstream in recent releases; copy it only if present
+[ ! -f nmap-payloads ] || cp nmap-payloads ${PREFIX}/share/nmap/
 
 # NSE engine + scripts + libraries
-cp nse_main.lua ${PREFIX}/share/nmap/ 2>/dev/null || true
-[ -d scripts ] && cp -r scripts ${PREFIX}/share/nmap/
-[ -d nselib ] && cp -r nselib ${PREFIX}/share/nmap/
+cp nse_main.lua ${PREFIX}/share/nmap/
+cp -r scripts nselib ${PREFIX}/share/nmap/
 
 # Reset flags
 export CFLAGS="-fPIC -O2"

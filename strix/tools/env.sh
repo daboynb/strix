@@ -1,6 +1,9 @@
 #!/bin/bash
 # Common cross-compilation environment for Android ARM64
 # Source this file from all build scripts: source "$(dirname "$0")/../env.sh"
+# Values come from strix/versions.env via docker --build-arg (see Dockerfile).
+set -euo pipefail
+: "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME not set}" "${API_LEVEL:?API_LEVEL not set (strix/versions.env)}"
 
 TOOLCHAIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64"
 TARGET="aarch64-linux-android"

@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building hydra ${HYDRA_VERSION} ==="
 cd /opt/src/thc-hydra-${HYDRA_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 # Hydra uses a custom configure that can't cross-compile SSL detection.
 # The configure test tries to compile+run an OpenSSL program, which fails
@@ -20,11 +20,15 @@ export CPPFLAGS="-I${SYSROOT}/include"
   --prefix=${PREFIX} \
   --disable-xhydra \
   --with-ssl=${SYSROOT} \
-  2>&1 || true
+  2>&1 || echo "  NOTE: hydra configure exited non-zero (its run-time probes can't work when cross-compiling); Makefile is checked below"
 
 # Force all module support — hydra configure can't cross-compile detection
 # tests (ARM64 binary on x86 host). Patch Makefile variables based on
 # which libraries were successfully cross-compiled to ${SYSROOT}.
+if [ ! -f Makefile ]; then
+  echo "FAIL: hydra configure did not generate a Makefile" >&2
+  exit 1
+fi
 if [ -f Makefile ]; then
   # -DHAVE_MATH_H + -lm: hydra's configure can't find math.h when cross-
   # compiling (it greps SDK_PATH which we don't set). Without it, the brute

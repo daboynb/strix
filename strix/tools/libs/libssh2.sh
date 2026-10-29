@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building libssh2 ${LIBSSH2_VERSION} ==="
 cd /opt/src/libssh2-${LIBSSH2_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 export CFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
@@ -28,4 +28,4 @@ export CFLAGS="-fPIC -O2"
 export LDFLAGS="-fPIE -pie -static-libstdc++"
 
 echo "=== libssh2 installed to ${SYSROOT} ==="
-ls -lh ${SYSROOT}/lib/libssh2.a 2>/dev/null
+ls -lh ${SYSROOT}/lib/libssh2.a

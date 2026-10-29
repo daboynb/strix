@@ -1,0 +1,100 @@
+# Reusable: one automated update track (called by update-bundles.yml).
+#   prepare -> (bump branch + draft PR) -> build affected bundles + smoke checks
+#   -> finish: publish releases, mark PR ready, squash-merge.
+# Any failure stops before publishing; update-bundles.yml then reports it.
+name: Update track (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      track:
+        description: msf | deps
+        type: string
+        required: true
+      base:
+        description: Branch the bump PR targets
+        type: string
+        required: true
+    secrets:
+      BUNDLE_SIGNING_KEY:
+        required: true
+    outputs:
+      changed:
+        value: ${{ jobs.prepare.outputs.changed }}
+      pr:
+        value: ${{ jobs.prepare.outputs.pr }}
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      changed: ${{ steps.p.outputs.changed }}
+      sha: ${{ steps.p.outputs.sha }}
+      pr: ${{ steps.p.outputs.pr }}
+      tools: ${{ steps.p.outputs.tools }}
+      msf: ${{ steps.p.outputs.msf }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.base }}
+          fetch-depth: 0
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ inputs.track }}
+          BASE: ${{ inputs.base }}
+        run: |
+          strix/scripts/update-prepare.sh "$TRACK" "$BASE"
+          cat "$RUNNER_TEMP/update-$TRACK.md" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && (needs.prepare.outputs.tools == 'true' || needs.prepare.outputs.msf == 'true')
+    uses: ./.github/workflows/bundle-build.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      tools: ${{ needs.prepare.outputs.tools == 'true' }}
+      msf: ${{ needs.prepare.outputs.msf == 'true' }}
+      artifact_prefix: ${{ inputs.track }}-
+      signed: true
+    secrets:
+      BUNDLE_SIGNING_KEY: ${{ secrets.BUNDLE_SIGNING_KEY }}
+
+  finish:
+    needs: [prepare, build]
+    if: >-
+      always() && needs.prepare.result == 'success' && needs.prepare.outputs.changed == 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.build.result == 'success'
+        with:
+          pattern: ${{ inputs.track }}-bundle-*
+          path: artifacts
+      - name: Publish + merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ inputs.track }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          PR: ${{ needs.prepare.outputs.pr }}
+          TOOLS: ${{ needs.prepare.outputs.tools }}
+          MSF: ${{ needs.prepare.outputs.msf }}
+        run: strix/scripts/update-finish.sh "$TRACK" "$SHA" "$PR" "$TOOLS" "$MSF" artifacts

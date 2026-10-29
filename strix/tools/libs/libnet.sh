@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building libnet ${LIBNET_VERSION} ==="
 cd /opt/src/libnet-${LIBNET_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 ./configure \
   --host=${TARGET} \

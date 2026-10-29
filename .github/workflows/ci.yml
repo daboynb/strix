@@ -1,0 +1,131 @@
+# Checks for pull requests and pushes to main.
+# Note: PRs opened/merged by the automated update (GITHUB_TOKEN) don't trigger this
+# workflow; update-bundles.yml runs the bundle builds + smoke checks itself.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+      - name: Unit tests + debug build
+        working-directory: strix
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      # Reported, not enforced: Android lint has never been run as a gate on this
+      # codebase, so its current findings are unknown. The report is uploaded below.
+      - name: Android lint (non-blocking)
+        working-directory: strix
+        continue-on-error: true
+        run: ./gradlew --no-daemon :app:lintDebug
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-reports
+          path: |
+            strix/app/build/reports/
+            strix/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned shellcheck + actionlint
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o sc.tar.xz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  sc.tar.xz" | sha256sum -c --strict -
+          tar xf sc.tar.xz && mv shellcheck-v0.11.0/shellcheck bin/
+          curl -fsSL -o al.tgz https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  al.tgz" | sha256sum -c --strict -
+          tar xzf al.tgz actionlint && mv actionlint bin/
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: bash -n
+        run: |
+          set -euo pipefail
+          git ls-files -z 'strix/*.sh' | xargs -0 -n1 bash -n
+          python3 -m py_compile strix/scripts/tar_safe_extract.py
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          # Host-side + CI scripts: warnings are errors
+          shellcheck -x -S warning -e SC2046,SC2076 strix/scripts/*.sh \
+            strix/tools/build.sh strix/tools/build-all.sh strix/tools/create-bundle.sh strix/tools/env.sh \
+            strix/ruby-msf/build.sh strix/ruby-msf/create-bundle.sh strix/ruby-msf/0*/*.sh
+          # In-container per-library build scripts: errors only
+          shellcheck -S error strix/tools/libs/*.sh strix/tools/tools/*.sh
+      - name: actionlint
+        run: actionlint
+
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tools: ${{ steps.c.outputs.tools }}
+      msf: ${{ steps.c.outputs.msf }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: c
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          meta=strix/scripts/bundle-meta.sh
+          mapfile -t paths < <(git diff --name-only "$BASE_SHA...HEAD")
+          printf 'changed: %s\n' "${paths[@]}"
+          eval "$("$meta" affected-paths "${paths[@]}" | sed 's/^/p_/')"
+          eval "$("$meta" affected <(git show "$BASE_SHA:strix/versions.env") strix/versions.env | sed 's/^/v_/')"
+          tools=false msf=false
+          { [ "$p_tools" = true ] || [ "$v_tools" = true ]; } && tools=true
+          { [ "$p_msf" = true ] || [ "$v_msf" = true ]; } && msf=true
+          { echo "tools=$tools"; echo "msf=$msf"; } | tee -a "$GITHUB_OUTPUT"
+
+  bundles:
+    needs: changes
+    if: needs.changes.outputs.tools == 'true' || needs.changes.outputs.msf == 'true'
+    uses: ./.github/workflows/bundle-build.yml
+    permissions:
+      contents: read
+    with:
+      tools: ${{ needs.changes.outputs.tools == 'true' }}
+      msf: ${{ needs.changes.outputs.msf == 'true' }}
+      signed: false
