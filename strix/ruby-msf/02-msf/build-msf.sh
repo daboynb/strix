@@ -23,13 +23,13 @@
 set -euo pipefail
 : "${ANDROID_NDK_HOME:?}" "${API_LEVEL:?}" "${MSF_REF:?}" "${MSF_COMMIT:?}" \
   "${LIBPCAP_VERSION:?}" "${SQLITE_VERSION:?}" "${SQLITE_YEAR:?}" "${POSTGRESQL_VERSION:?}" \
-  "${LIBXML2_VERSION:?}" "${LIBXSLT_VERSION:?}"
+  "${LIBXML2_VERSION:?}" "${LIBXSLT_VERSION:?}" "${BUNDLER_VERSION:?}" "${BUNDLER_SHA256:?}"
 
 # Download + verify + extract a source tarball into /tmp
-fetch_src() { # <url> <sha256>
+fetch_src() { # <url> <sha256> [<keyring> <signature-url>]
     local file
     file="/tmp/$(basename "$1")"
-    strix-fetch "$1" "$2" "$file"
+    strix-fetch "$1" "$2" "$file" "${@:3}"
     tar xf "$file" -C /tmp
     rm -f "$file"
 }
@@ -65,6 +65,11 @@ if [ "${MSF_HEAD}" != "${MSF_COMMIT}" ]; then
     exit 1
 fi
 echo "MSF: $(git -C ${MSF_DIR} log --oneline -1)"
+# Pinned lockfile = MSF's own + sha256 of every gem (strix/ruby-msf/02-msf/Gemfile.lock,
+# scripts/msf-gemlock.sh); refuse a lockfile generated for another MSF commit
+GEMLOCK=/opt/msf-Gemfile.lock
+strix-msf-gemlock check "${MSF_DIR}/Gemfile.lock" "${GEMLOCK}"
+cp "${GEMLOCK}" "${MSF_DIR}/Gemfile.lock"
 
 # ============================================================
 # FASE 2: Cross-compile dipendenze extra
@@ -80,7 +85,8 @@ export STRIP="${TOOLCHAIN}/bin/llvm-strip"
 
 # libpcap
 echo "--- libpcap ${LIBPCAP_VERSION} ---"
-fetch_src "https://www.tcpdump.org/release/libpcap-${LIBPCAP_VERSION}.tar.gz" "${LIBPCAP_SHA256}"
+fetch_src "https://www.tcpdump.org/release/libpcap-${LIBPCAP_VERSION}.tar.gz" "${LIBPCAP_SHA256}" \
+    tcpdump "https://www.tcpdump.org/release/libpcap-${LIBPCAP_VERSION}.tar.gz.sig"
 cd /tmp/libpcap-${LIBPCAP_VERSION}
 CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-fPIC -O2" \
 ./configure --host=${TARGET} --prefix=${DEPS} --disable-shared --without-libnl
@@ -158,6 +164,17 @@ cd ${MSF_DIR}
 # Resetta cross-compiler
 unset CC CXX AR RANLIB STRIP C_INCLUDE_PATH LIBRARY_PATH PKG_CONFIG_PATH PKG_CONFIG_LIBDIR
 
+# Pinned Bundler (CHECKSUMS support) from a sha256-verified .gem, no network resolution
+strix-fetch "https://rubygems.org/downloads/bundler-${BUNDLER_VERSION}.gem" "${BUNDLER_SHA256}" /tmp/bundler.gem
+${RUBY_HOST}/bin/gem install --local --no-doc /tmp/bundler.gem
+rm -f /tmp/bundler.gem
+BUNDLE_VER=$(bundle --version)
+[ "${BUNDLE_VER}" = "Bundler version ${BUNDLER_VERSION}" ] \
+    || { echo "FAIL: bundle is '${BUNDLE_VER}', expected ${BUNDLER_VERSION}"; exit 1; }
+
+# frozen: install exactly the pinned lockfile; a gem whose sha256 differs from its
+# CHECKSUMS entry aborts the install
+bundle config set --local frozen true
 bundle config set --local force_ruby_platform true
 bundle config set --local path vendor/bundle
 bundle config set --local without 'development test coverage'
@@ -169,6 +186,7 @@ if ! bundle install; then
     bundle install
 fi
 bundle check
+cmp -s "${GEMLOCK}" Gemfile.lock || { echo "FAIL: bundle install rewrote the pinned Gemfile.lock"; exit 1; }
 
 TOTAL_GEMS=$(find vendor/bundle -name "*.gemspec" | wc -l)
 echo "Gemme installate: ${TOTAL_GEMS}"
@@ -193,7 +211,11 @@ cp ${RBCONFIG_CROSS} ${RBCONFIG_HOST}
 echo "CC: $(${RUBY_HOST}/bin/ruby -rrbconfig -e 'puts RbConfig::CONFIG["CC"]')"
 
 # Installa mini_portile2 (serve per nokogiri extconf)
-${RUBY_HOST}/bin/gem install mini_portile2 -v '~> 2.8.2' --no-doc
+# (version + sha256 from the pinned lockfile, so it is the same verified gem bundler installed)
+read -r MP_VER MP_SHA < <(strix-msf-gemlock gem "${GEMLOCK}" mini_portile2)
+strix-fetch "https://rubygems.org/downloads/mini_portile2-${MP_VER}.gem" "${MP_SHA}" /tmp/mini_portile2.gem
+${RUBY_HOST}/bin/gem install --local --no-doc /tmp/mini_portile2.gem
+rm -f /tmp/mini_portile2.gem
 
 # ============================================================
 # FASE 5: Cross-compila ext native

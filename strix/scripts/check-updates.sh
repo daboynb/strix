@@ -10,8 +10,11 @@
 #
 # Writes a markdown list of changes to summary-file (default: stdout only).
 # Exit 0 = all lookups ran (changes or not); exit 1 = at least one lookup failed
-# (successful updates are still written). NDK is not checked (manual bump).
-# Needs: curl, git, gh (authenticated), docker buildx (base image digest), sha256sum.
+# (successful updates are still written); exit 3 = a new release failed its OpenPGP
+# signature check (bad signature or signing key not pinned in keys/). NDK is not checked (manual bump).
+# Needs: curl, git, gh (authenticated), docker buildx (base image digest), sha256sum, gpgv.
+# Signed upstreams (upstream_sig) are bumped only if the new release verifies against the
+# pinned key in keys/ (verify-sig.sh); a rotated key fails the lookup loudly.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +30,7 @@ SUMMARY=${2:-/dev/null}
 want() { [ "$TRACK" = all ] || [ "$TRACK" = "$1" ]; }
 : > "$SUMMARY"
 ERRORS=0
+SIG_ERRORS=0
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -40,7 +44,7 @@ sha_of() { # <url>
 }
 
 check_tarball() { # <KEY>   (KEY_VERSION + KEY_SHA256 in versions.env)
-  local key=$1 cur_var="${1}_VERSION" cur latest year="" url sha
+  local key=$1 cur_var="${1}_VERSION" cur latest year="" url sha keyring="" sig_url sig_note
   cur=${!cur_var}
   if ! latest=$(upstream_latest "$key"); then fail "$key"; return 0; fi
   if [ "$key" = SQLITE ]; then year=${latest#* }; latest=${latest% *}; fi
@@ -48,15 +52,28 @@ check_tarball() { # <KEY>   (KEY_VERSION + KEY_SHA256 in versions.env)
   newer "$cur" "$latest" || { echo "up to date: $key $cur"; return 0; }
   url=$(upstream_url "$key" "$latest" "$year")
   if ! sha=$(sha_of "$url"); then fail "$key $latest: download $url"; return 0; fi
+  read -r keyring sig_url < <(upstream_sig "$key" "$latest") || true
+  if [ -n "${keyring:-}" ]; then
+    # Signing key changed / bad signature -> no bump: a human checks the new key
+    if ! curl -fsSL --retry 3 -o "$TMP/dl.sig" "$sig_url" \
+       || ! "${SCRIPT_DIR}/verify-sig.sh" "$keyring" "$TMP/dl" "$TMP/dl.sig"; then
+      fail "$key $latest: OpenPGP signature check failed ($sig_url, keyring $keyring) - NOT bumped; if upstream rotated its signing key, verify it at the official source and pin it in strix/scripts/keys/"
+      SIG_ERRORS=$((SIG_ERRORS+1))
+      return 0
+    fi
+    sig_note=", signature verified ($keyring key)"
+  else
+    sig_note=""
+  fi
   set_var "${key}_VERSION" "$latest"
   set_var "${key}_SHA256" "$sha"
   [ -z "$year" ] || set_var SQLITE_YEAR "$year"
-  note "$key: $cur -> $latest (sha256 $sha, from $url)"
+  note "$key: $cur -> $latest (sha256 $sha, from $url${sig_note})"
 }
 
 if want deps; then
 for key in NMAP LIBPCAP TCPDUMP LIBNET HYDRA ETTERCAP LIBIDN OPENSSL POSTGRESQL CURL GEOIP LUA \
-           LIBSSH2 LIBSSH PCRE2 GPG_ERROR GCRYPT MARIADB LIBMEMCACHED \
+           LIBSSH2 LIBSSH PCRE2 GPG_ERROR GCRYPT MARIADB CYRUS_SASL \
            RUBY ZLIB YAML LIBFFI SQLITE LIBXML2 LIBXSLT; do
   check_tarball "$key"
 done
@@ -107,5 +124,6 @@ fi
 
 fi
 
-echo "lookup errors: $ERRORS"
+echo "lookup errors: $ERRORS (signature failures: $SIG_ERRORS)"
+[ "$SIG_ERRORS" -eq 0 ] || exit 3
 [ "$ERRORS" -eq 0 ]

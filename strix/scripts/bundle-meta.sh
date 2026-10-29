@@ -20,8 +20,8 @@ source "${SCRIPT_DIR}/lib.sh"
 # Which bundle(s) a versions.env key feeds: tools | msf | both
 bundle_of_key() {
   case "${1%%_*}" in
-    NMAP|TCPDUMP|HYDRA|ETTERCAP|LIBNET|LIBIDN|CURL|GEOIP|LUA|LIBSSH2|LIBSSH|PCRE2|GPG|GCRYPT|MARIADB|LIBMEMCACHED|RTMPDUMP|TOOLS) echo tools ;;
-    RUBY|ZLIB|YAML|LIBFFI|SQLITE|LIBXML2|LIBXSLT|MSF) echo msf ;;
+    NMAP|TCPDUMP|HYDRA|ETTERCAP|LIBNET|LIBIDN|CURL|GEOIP|LUA|LIBSSH2|LIBSSH|PCRE2|GPG|GCRYPT|MARIADB|CYRUS|LIBMEMCACHED|RTMPDUMP|TOOLS) echo tools ;;
+    RUBY|ZLIB|YAML|LIBFFI|SQLITE|LIBXML2|LIBXSLT|MSF|BUNDLER) echo msf ;;
     *) echo both ;;   # BASE_IMAGE, NDK, API_LEVEL, OPENSSL, LIBPCAP, POSTGRESQL, unknown
   esac
 }
@@ -47,8 +47,10 @@ affected_paths() {
     case "$p" in
       strix/tools/*) tools=true ;;
       strix/ruby-msf/*) msf=true ;;
-      strix/scripts/lib.sh|strix/scripts/fetch.sh|strix/scripts/sign-bundle.sh|strix/scripts/smoke-*.sh|\
+      strix/scripts/lib.sh|strix/scripts/fetch.sh|strix/scripts/verify-sig.sh|strix/scripts/keys/*|\
+      strix/scripts/sign-bundle.sh|strix/scripts/smoke-*.sh|\
       strix/scripts/tar_safe_extract.py|.github/workflows/bundle-build.yml) tools=true; msf=true ;;
+      strix/scripts/msf-gemlock.sh) msf=true ;;
     esac
   done
   emit "$tools" "$msf"

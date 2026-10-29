@@ -16,10 +16,10 @@ set -euo pipefail
   "${ZLIB_VERSION:?}" "${YAML_VERSION:?}" "${LIBFFI_VERSION:?}"
 
 # Download + verify + extract a source tarball into /tmp
-fetch_src() { # <url> <sha256>
+fetch_src() { # <url> <sha256> [<keyring> <signature-url>]
     local file
     file="/tmp/$(basename "$1")"
-    strix-fetch "$1" "$2" "$file"
+    strix-fetch "$1" "$2" "$file" "${@:3}"
     tar xf "$file" -C /tmp
     rm -f "$file"
 }
@@ -70,7 +70,8 @@ mkdir -p ${DEPS}
 
 # OpenSSL
 echo "--- OpenSSL ${OPENSSL_VERSION} ---"
-fetch_src "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" "${OPENSSL_SHA256}"
+fetch_src "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" "${OPENSSL_SHA256}" \
+    openssl "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz.asc"
 cd /tmp/openssl-${OPENSSL_VERSION}
 ./Configure android-arm64 --prefix=${DEPS} -D__ANDROID_API__=${API} no-shared no-tests enable-legacy
 make -j$(nproc)
@@ -85,7 +86,8 @@ echo "PASS: OpenSSL"
 
 # zlib
 echo "--- zlib ${ZLIB_VERSION} ---"
-fetch_src "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" "${ZLIB_SHA256}"
+fetch_src "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" "${ZLIB_SHA256}" \
+    zlib "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz.asc"
 cd /tmp/zlib-${ZLIB_VERSION}
 CHOST=${TARGET} CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-fPIC -O2" \
 ./configure --prefix=${DEPS} --static

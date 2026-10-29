@@ -105,56 +105,8 @@ fi
 # Fix: fall back to L2 (AF_PACKET via send_to_L2) which works on Android.
 cd /opt/src/ettercap-${ETTERCAP_VERSION}
 
-# Replace the early-return on missing lnet_IP4/IP6 with L2 fallback
-cat > src/ec_sniff_unified_android.patch << 'UNIFIEDEOF'
---- a/src/ec_sniff_unified.c
-+++ b/src/ec_sniff_unified.c
-@@ -105,13 +105,13 @@ void forward_unified_sniff(struct packet_object *po)
- {
--   /* if it was not initialized, no packet are forwardable */
-+   int use_l2 = 0;
-    switch(ntohs(po->L3.proto)) {
-       case LL_TYPE_IP:
--         if(!EC_GBL_LNET->lnet_IP4)
--            return;
-+         if(!EC_GBL_LNET->lnet_IP4)
-+            use_l2 = 1;
-          if(!(EC_GBL_IFACE->has_ipv4))
-             return;
-          break;
-       case LL_TYPE_IP6:
--         if(!EC_GBL_LNET->lnet_IP6)
--            return;
-+         if(!EC_GBL_LNET->lnet_IP6)
-+            use_l2 = 1;
-          if(!(EC_GBL_IFACE->has_ipv6))
-             return;
-          break;
-@@ -132,7 +132,9 @@ void forward_unified_sniff(struct packet_object *po)
-
-    /* don't forward dropped packets */
--   if ((po->flags & PO_DROPPED) == 0)
--      send_to_L3(po);
-+   if ((po->flags & PO_DROPPED) == 0) {
-+      if (use_l2)
-+         send_to_L2(po);
-+      else
-+         send_to_L3(po);
-+   }
-
-     /*
-UNIFIEDEOF
-# Apply with sed as fallback if patch fails (format differences)
-if ! patch -p1 --forward < src/ec_sniff_unified_android.patch 2>/dev/null; then
-  echo "  Patch format failed, applying with sed..."
-  # Replace the lnet_IP4 early-return with L2 fallback
-  sed -i '/void forward_unified_sniff/,/^}/ {
-    s/if(!EC_GBL_LNET->lnet_IP4)/if(!EC_GBL_LNET->lnet_IP4) { send_to_L2(po); return; } if(0)/
-    s/if(!EC_GBL_LNET->lnet_IP6)/if(!EC_GBL_LNET->lnet_IP6) { send_to_L2(po); return; } if(0)/
-  }' src/ec_sniff_unified.c
-fi
-rm -f src/ec_sniff_unified_android.patch
-grep -q "send_to_L2(po)" src/ec_sniff_unified.c || { echo "FAIL: L2 forwarding patch not applied" >&2; exit 1; }
+patch -p1 --forward < /opt/patches/ettercap-l2-forward.patch
+grep -q "send_to_L2(po);" src/ec_sniff_unified.c || { echo "FAIL: L2 forwarding patch not applied" >&2; exit 1; }
 echo "  Applied Android L2 forwarding fallback patch"
 
 # --- Patch 5b: send_to_L3 fallback to send_to_L2 on Android ---
