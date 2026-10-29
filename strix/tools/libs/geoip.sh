@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building GeoIP ${GEOIP_VERSION} ==="
 cd /opt/src/GeoIP-${GEOIP_VERSION}
 
-[ -f Makefile ] && make distclean 2>/dev/null || true
 
 # GeoIP uses autotools
 if [ -f configure.ac ] && [ ! -f configure ]; then
@@ -26,4 +26,4 @@ make -j$(nproc) 2>&1
 make install 2>&1
 
 echo "=== GeoIP installed to ${SYSROOT} ==="
-ls -lh ${SYSROOT}/lib/libGeoIP.a 2>/dev/null
+ls -lh ${SYSROOT}/lib/libGeoIP.a

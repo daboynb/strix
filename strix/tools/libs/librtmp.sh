@@ -1,11 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building librtmp ==="
 cd /opt/src/rtmpdump/librtmp
 
-make clean 2>/dev/null || true
 
 make \
   SYS=posix \

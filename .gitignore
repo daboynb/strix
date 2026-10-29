@@ -27,3 +27,4 @@ build*.log
 # app build artifacts
 app/build-output/
 app/cSploit/assets/ruby-msf-bundle.tar.gz.bin
+!strix/gradle/wrapper/gradle-wrapper.jar

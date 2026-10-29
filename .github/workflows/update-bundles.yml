@@ -1,0 +1,78 @@
+# Fully automated bundle updates. Runs Friday 06:00 UTC (Rapid7 usually tags a new
+# Metasploit on Thursday) and on demand.
+#
+# Two independent tracks, run one after the other so the second starts from the
+# branch tip the first may have just merged into:
+#   msf  - MSF_REF/MSF_COMMIT only -> msf bundle
+#   deps - every other pin in strix/versions.env -> tools and/or msf bundle
+# Each track: bump branch automation/<track>-update + draft PR -> build + smoke checks
+# -> publish bundles-msf-<ver>-r<N> / bundles-tools-r<N> -> squash-merge the PR.
+# A failure publishes nothing, leaves the PR as draft and opens/updates the single
+# issue "Automated bundle update failed". Re-runs are idempotent (inputs fingerprint).
+# Everything is chained inside this run: events made with GITHUB_TOKEN would not
+# trigger other workflows.
+name: Update bundles
+
+on:
+  schedule:
+    - cron: '0 6 * * 5'
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Which update track(s) to run
+        type: choice
+        options: [all, msf, deps]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-bundles
+  cancel-in-progress: false
+
+jobs:
+  msf:
+    if: inputs.track != 'deps'
+    uses: ./.github/workflows/update-track.yml
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      track: msf
+      base: ${{ github.ref_name }}
+    secrets:
+      BUNDLE_SIGNING_KEY: ${{ secrets.BUNDLE_SIGNING_KEY }}
+
+  deps:
+    needs: msf
+    if: always() && inputs.track != 'msf'
+    uses: ./.github/workflows/update-track.yml
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      track: deps
+      base: ${{ github.ref_name }}
+    secrets:
+      BUNDLE_SIGNING_KEY: ${{ secrets.BUNDLE_SIGNING_KEY }}
+
+  report:
+    needs: [msf, deps]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          MSF_RESULT: ${{ needs.msf.result }}
+          DEPS_RESULT: ${{ needs.deps.result }}
+          BASE: ${{ github.ref_name }}
+        run: strix/scripts/update-report.sh "$BASE" "msf=$MSF_RESULT" "deps=$DEPS_RESULT"

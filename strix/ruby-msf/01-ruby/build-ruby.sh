@@ -7,10 +7,22 @@
 #   /opt/ruby-host     — Ruby host (x86_64, serve per bundle install)
 #   /opt/android-deps  — Librerie statiche cross-compilate
 #
-# Verifica in 6 fasi con PASS/FAIL per ogni step.
+# Runs at image-build time (see ../Dockerfile, stage "ruby"); versions and
+# checksums come from strix/versions.env via build args. Any failure aborts.
 # ============================================================
 
-set -e
+set -euo pipefail
+: "${ANDROID_NDK_HOME:?}" "${API_LEVEL:?}" "${RUBY_VERSION:?}" "${OPENSSL_VERSION:?}" \
+  "${ZLIB_VERSION:?}" "${YAML_VERSION:?}" "${LIBFFI_VERSION:?}"
+
+# Download + verify + extract a source tarball into /tmp
+fetch_src() { # <url> <sha256>
+    local file
+    file="/tmp/$(basename "$1")"
+    strix-fetch "$1" "$2" "$file"
+    tar xf "$file" -C /tmp
+    rm -f "$file"
+}
 
 RUBY_SRC=/opt/ruby-src
 NDK=${ANDROID_NDK_HOME}
@@ -37,9 +49,9 @@ echo "============================================"
 echo ""
 echo "=== FASE 1: Ruby host ==="
 cd ${RUBY_SRC}
-./configure --prefix=${HOST_RUBY} --disable-install-doc 2>&1 | tail -2
-make -j$(nproc) 2>&1 | tail -2
-make install 2>&1 | tail -2
+./configure --prefix=${HOST_RUBY} --disable-install-doc
+make -j$(nproc)
+make install
 echo "PASS: $(${HOST_RUBY}/bin/ruby --version)"
 
 # ============================================================
@@ -56,47 +68,53 @@ export STRIP="${TOOLCHAIN}/bin/llvm-strip"
 
 mkdir -p ${DEPS}
 
-# OpenSSL 3.2.1
-echo "--- OpenSSL ---"
-cd /tmp
-wget -q https://github.com/openssl/openssl/releases/download/openssl-3.2.1/openssl-3.2.1.tar.gz
-tar xzf openssl-3.2.1.tar.gz && cd openssl-3.2.1
-./Configure android-arm64 --prefix=${DEPS} -D__ANDROID_API__=${API} no-shared no-tests enable-legacy 2>&1 | tail -1
-make -j$(nproc) 2>&1 | tail -1
-make install_sw 2>&1 | tail -1
+# OpenSSL
+echo "--- OpenSSL ${OPENSSL_VERSION} ---"
+fetch_src "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" "${OPENSSL_SHA256}"
+cd /tmp/openssl-${OPENSSL_VERSION}
+./Configure android-arm64 --prefix=${DEPS} -D__ANDROID_API__=${API} no-shared no-tests enable-legacy
+make -j$(nproc)
+make install_sw
 # OpenSSL mette in lib64 su alcune piattaforme
-[ -d ${DEPS}/lib64 ] && [ ! -f ${DEPS}/lib/libssl.a ] && cp -a ${DEPS}/lib64/* ${DEPS}/lib/
-[ -f ${DEPS}/lib/libssl.a ] && echo "PASS: OpenSSL" || { echo "FAIL: OpenSSL"; exit 1; }
+if [ -d ${DEPS}/lib64 ] && [ ! -f ${DEPS}/lib/libssl.a ]; then
+    mkdir -p ${DEPS}/lib
+    cp -a ${DEPS}/lib64/* ${DEPS}/lib/
+fi
+[ -f ${DEPS}/lib/libssl.a ] || { echo "FAIL: OpenSSL"; exit 1; }
+echo "PASS: OpenSSL"
 
-# zlib 1.3.1
-echo "--- zlib ---"
-cd /tmp
-wget -q https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
-tar xzf zlib-1.3.1.tar.gz && cd zlib-1.3.1
+# zlib
+echo "--- zlib ${ZLIB_VERSION} ---"
+fetch_src "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" "${ZLIB_SHA256}"
+cd /tmp/zlib-${ZLIB_VERSION}
 CHOST=${TARGET} CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-fPIC -O2" \
-./configure --prefix=${DEPS} --static 2>&1 | tail -1
-make -j$(nproc) 2>&1 | tail -1 && make install 2>&1 | tail -1
-[ -f ${DEPS}/lib/libz.a ] && echo "PASS: zlib" || { echo "FAIL: zlib"; exit 1; }
+./configure --prefix=${DEPS} --static
+make -j$(nproc)
+make install
+[ -f ${DEPS}/lib/libz.a ] || { echo "FAIL: zlib"; exit 1; }
+echo "PASS: zlib"
 
-# libyaml 0.2.5
-echo "--- libyaml ---"
-cd /tmp
-wget -q https://github.com/yaml/libyaml/releases/download/0.2.5/yaml-0.2.5.tar.gz
-tar xzf yaml-0.2.5.tar.gz && cd yaml-0.2.5
+# libyaml
+echo "--- libyaml ${YAML_VERSION} ---"
+fetch_src "https://github.com/yaml/libyaml/releases/download/${YAML_VERSION}/yaml-${YAML_VERSION}.tar.gz" "${YAML_SHA256}"
+cd /tmp/yaml-${YAML_VERSION}
 CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-fPIC -O2" \
-./configure --host=${TARGET} --prefix=${DEPS} --enable-static --disable-shared 2>&1 | tail -1
-make -j$(nproc) 2>&1 | tail -1 && make install 2>&1 | tail -1
-[ -f ${DEPS}/lib/libyaml.a ] && echo "PASS: libyaml" || { echo "FAIL: libyaml"; exit 1; }
+./configure --host=${TARGET} --prefix=${DEPS} --enable-static --disable-shared
+make -j$(nproc)
+make install
+[ -f ${DEPS}/lib/libyaml.a ] || { echo "FAIL: libyaml"; exit 1; }
+echo "PASS: libyaml"
 
-# libffi 3.4.6
-echo "--- libffi ---"
-cd /tmp
-wget -q https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
-tar xzf libffi-3.4.6.tar.gz && cd libffi-3.4.6
+# libffi
+echo "--- libffi ${LIBFFI_VERSION} ---"
+fetch_src "https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz" "${LIBFFI_SHA256}"
+cd /tmp/libffi-${LIBFFI_VERSION}
 CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" CFLAGS="-fPIC -O2" \
-./configure --host=${TARGET} --prefix=${DEPS} --enable-static --disable-shared 2>&1 | tail -1
-make -j$(nproc) 2>&1 | tail -1 && make install 2>&1 | tail -1
-[ -f ${DEPS}/lib/libffi.a ] && echo "PASS: libffi" || { echo "FAIL: libffi"; exit 1; }
+./configure --host=${TARGET} --prefix=${DEPS} --enable-static --disable-shared
+make -j$(nproc)
+make install
+[ -f ${DEPS}/lib/libffi.a ] || { echo "FAIL: libffi"; exit 1; }
+echo "PASS: libffi"
 
 echo ""
 echo "Dipendenze: $(ls ${DEPS}/lib/*.a | wc -l) librerie statiche"
@@ -107,7 +125,8 @@ echo "Dipendenze: $(ls ${DEPS}/lib/*.a | wc -l) librerie statiche"
 echo ""
 echo "=== FASE 3: Ruby cross-compile ==="
 cd ${RUBY_SRC}
-make clean 2>/dev/null; make distclean 2>/dev/null; true
+# Reset the tree after the host build so the cross configure starts clean
+make distclean
 
 export CFLAGS="-fPIC -O2 -I${DEPS}/include"
 export CXXFLAGS="-fPIC -O2 -I${DEPS}/include"
@@ -129,14 +148,16 @@ export PKG_CONFIG_PATH="${DEPS}/lib/pkgconfig"
     --with-libyaml-dir=${DEPS} \
     --with-out-ext=readline,dbm,gdbm,sdbm \
     ac_cv_func_setpgrp_void=yes \
-    ac_cv_func_flock=yes \
-    2>&1 | tail -5
+    ac_cv_func_flock=yes
 
-make -j$(nproc) 2>&1 | tail -5
-make install DESTDIR=/tmp/ruby-install 2>&1 | tail -3
+make -j$(nproc)
+rm -rf /tmp/ruby-install
+make install DESTDIR=/tmp/ruby-install
 
-RUBY_BIN=$(find /tmp/ruby-install -name "ruby" -type f | head -1)
-file "$RUBY_BIN" | grep -q "aarch64" && echo "PASS: $(file $RUBY_BIN | cut -d: -f2)" || { echo "FAIL: not aarch64"; exit 1; }
+RUBY_BIN=/tmp/ruby-install${PREFIX}/bin/ruby
+[ -f "$RUBY_BIN" ] || { echo "FAIL: ${RUBY_BIN} not installed"; exit 1; }
+file "$RUBY_BIN" | grep -q "aarch64" || { echo "FAIL: not aarch64: $(file "$RUBY_BIN")"; exit 1; }
+echo "PASS: $(file "$RUBY_BIN" | cut -d: -f2)"
 
 # ============================================================
 # FASE 4: Verifica ext critiche
@@ -153,12 +174,15 @@ for ext_name in openssl fiddle zlib psych socket; do
     fi
 done
 echo "Ext: ${EXT_OK}/5"
+[ "${EXT_OK}" -eq 5 ] || { echo "FAIL: critical static extensions missing"; exit 1; }
 
 # ============================================================
 # FASE 5: Pacchettizza output
 # ============================================================
 echo ""
 echo "=== FASE 5: Output ==="
+# Fresh output: cp -a into an existing dir would nest (ruby-android/ruby-android)
+rm -rf ${OUTPUT}
 mkdir -p ${OUTPUT}
 
 # Ruby cross-compilato

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
@@ -8,8 +9,8 @@ cd /opt/src/libssh-${LIBSSH_VERSION}
 rm -rf build && mkdir -p build && cd build
 
 # Android bionic lacks GLOB_TILDE and S_IWRITE
-sed -i 's/GLOB_TILDE/0/g' /opt/src/libssh-${LIBSSH_VERSION}/src/config.c 2>/dev/null || true
-sed -i 's/S_IWRITE/S_IWUSR/g' /opt/src/libssh-${LIBSSH_VERSION}/src/misc.c 2>/dev/null || true
+sed -i 's/GLOB_TILDE/0/g' /opt/src/libssh-${LIBSSH_VERSION}/src/config.c
+sed -i 's/S_IWRITE/S_IWUSR/g' /opt/src/libssh-${LIBSSH_VERSION}/src/misc.c
 
 cmake .. \
   -DCMAKE_SYSTEM_NAME=Linux \
@@ -41,4 +42,4 @@ make -j$(nproc) 2>&1
 make install 2>&1
 
 echo "=== libssh installed to ${SYSROOT} ==="
-ls -lh ${SYSROOT}/lib/libssh.a 2>/dev/null
+ls -lh ${SYSROOT}/lib/libssh.a

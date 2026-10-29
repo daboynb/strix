@@ -1,0 +1,135 @@
+# Reusable: build the selected native bundles at <ref>, create + sign (or leave
+# unsigned for PR checks) their manifests, run the smoke checks and upload them as
+# artifacts "<artifact_prefix>bundle-tools" / "<artifact_prefix>bundle-msf"
+# (dist/<bundle>.tar.gz.bin, .json, .json.sig) and build logs.
+# Publishing is up to the caller (scripts/publish-bundle-release.sh).
+name: Bundle build (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit/branch to build (default = the caller's commit)
+        type: string
+        default: ''
+      tools:
+        type: boolean
+        default: false
+      msf:
+        type: boolean
+        default: false
+      artifact_prefix:
+        description: Prefix for artifact names (needed when one run builds twice)
+        type: string
+        default: ''
+      signed:
+        description: Sign manifests with BUNDLE_SIGNING_KEY (false = ALLOW_UNSIGNED, for PR checks)
+        type: boolean
+        default: true
+    secrets:
+      BUNDLE_SIGNING_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      any: ${{ steps.m.outputs.any }}
+    steps:
+      - id: m
+        env:
+          TOOLS: ${{ inputs.tools }}
+          MSF: ${{ inputs.msf }}
+        run: |
+          set -euo pipefail
+          items=()
+          [ "$TOOLS" != true ] || items+=('{"id":"tools","dir":"strix/tools","base":"tools-bundle","timeout":180}')
+          [ "$MSF" != true ] || items+=('{"id":"msf","dir":"strix/ruby-msf","base":"ruby-msf-bundle","timeout":330}')
+          joined=$(IFS=,; echo "${items[*]:-}")
+          echo "matrix={\"include\":[${joined}]}" >> "$GITHUB_OUTPUT"
+          echo "any=$([ "${#items[@]}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force
+          df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Exposes ACTIONS_RUNTIME_TOKEN / cache URL to run steps for buildx type=gha cache
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - name: Build
+        env:
+          STRIX_BUILDX_ARGS: --cache-from type=gha,scope=strix-${{ matrix.id }} --cache-to type=gha,mode=max,scope=strix-${{ matrix.id }}
+        run: ${{ matrix.dir }}/build.sh
+      - name: Create bundle + manifest
+        env:
+          SIGNED: ${{ inputs.signed }}
+          SIGNING_KEY_PEM: ${{ secrets.BUNDLE_SIGNING_KEY }}
+          DIR: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" != true ]; then
+            ALLOW_UNSIGNED=1 "$DIR/create-bundle.sh"
+            exit 0
+          fi
+          [ -n "$SIGNING_KEY_PEM" ] || { echo "::error::secret BUNDLE_SIGNING_KEY is not set"; exit 1; }
+          key="$RUNNER_TEMP/bundle-signing.key"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$SIGNING_KEY_PEM" > "$key")
+          BUNDLE_SIGNING_KEY="$key" "$DIR/create-bundle.sh"
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bundle-signing.key"
+      - name: Stage assets
+        env:
+          DIR: ${{ matrix.dir }}
+          BASE: ${{ matrix.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          mv "$DIR/$BASE.tar.gz" "dist/$BASE.tar.gz.bin"
+          cp "$DIR/$BASE.json" dist/
+          [ ! -f "$DIR/$BASE.json.sig" ] || cp "$DIR/$BASE.json.sig" dist/
+          ls -l dist
+      - name: Smoke checks
+        env:
+          ALLOW_UNSIGNED: ${{ inputs.signed && '0' || '1' }}
+          ID: ${{ matrix.id }}
+          BASE: ${{ matrix.base }}
+        run: strix/scripts/smoke-bundle.sh "$ID" "dist/$BASE.tar.gz.bin" "dist/$BASE.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact_prefix }}bundle-${{ matrix.id }}
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ${{ inputs.artifact_prefix }}build-log-${{ matrix.id }}
+          path: ${{ matrix.dir }}/build.log
+          if-no-files-found: ignore
+          retention-days: 14

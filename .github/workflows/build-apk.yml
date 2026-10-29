@@ -1,0 +1,137 @@
+# Builds the signed release APK. The tools bundle comes from the newest verified
+# "bundles-tools-*" GitHub release (falling back to the copy committed in
+# strix/app/src/main/assets). Metasploit is not embedded: the app downloads the
+# "bundles-msf-*" release at runtime.
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Bundles from releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=strix/app/src/main/assets
+          rc=0
+          strix/scripts/fetch-release-bundle.sh "$GITHUB_REPOSITORY" bundles-tools- tools-bundle.json \
+            "$assets/tools-bundle.tar.gz.bin" || rc=$?
+          case $rc in
+            0) ;;
+            3) echo "::notice::no bundles-tools release, using the committed tools bundle" ;;
+            *) exit "$rc" ;;
+          esac
+          [ -s "$assets/tools-bundle.tar.gz.bin" ] || { echo "::error::tools bundle missing"; exit 1; }
+          [ -s "$assets/tools-bundle.json" ] || { echo "::error::tools-bundle.json missing"; exit 1; }
+          ls -lh "$assets"
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # gradle-wrapper.jar is not tracked (root .gitignore has *.jar); in that case
+      # install the Gradle version pinned in gradle-wrapper.properties instead.
+      - name: Gradle wrapper
+        id: wrapper
+        run: |
+          set -euo pipefail
+          props=strix/gradle/wrapper/gradle-wrapper.properties
+          version=$(sed -nE 's|^distributionUrl=.*/gradle-([0-9.]+)-(bin\|all)\.zip$|\1|p' "$props")
+          [ -n "$version" ] || { echo "::error::cannot read Gradle version from $props"; exit 1; }
+          if [ -f strix/gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "gradle=./gradlew" >> "$GITHUB_OUTPUT"
+            echo "install=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::strix/gradle/wrapper/gradle-wrapper.jar is not committed; using Gradle $version from setup-gradle"
+            echo "gradle=gradle" >> "$GITHUB_OUTPUT"
+            echo "install=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+          gradle-version: ${{ steps.wrapper.outputs.install }}
+
+      - name: Release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.STRIX_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.STRIX_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.STRIX_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.STRIX_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            [ -n "${!v}" ] || { echo "::error::secret STRIX_$v is not set"; exit 1; }
+          done
+          umask 077
+          base64 -d <<< "$KEYSTORE_B64" > "$RUNNER_TEMP/strix-release.jks"
+          mkdir -p "$HOME/.strix"
+          # Format read by strix/app/build.gradle.kts (~/.strix/keystore.properties)
+          {
+            echo "storeFile=$RUNNER_TEMP/strix-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > "$HOME/.strix/keystore.properties"
+
+      - name: Unit tests + release build
+        working-directory: strix
+        run: ${{ steps.wrapper.outputs.gradle }} --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/strix-release.jks" "$HOME/.strix/keystore.properties"
+
+      - name: Verify APK signature
+        id: apk
+        run: |
+          set -euo pipefail
+          apk=strix/app/build/outputs/apk/release/app-release.apk
+          [ -f "$apk" ] || { echo "::error::$apk not found (release build unsigned?)"; ls -R strix/app/build/outputs/apk; exit 1; }
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)
+          "$bt/apksigner" verify --print-certs "$apk"
+          name="strix-${GITHUB_REF_NAME//\//-}.apk"
+          cp "$apk" "$name"
+          echo "file=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk
+          path: ${{ steps.apk.outputs.file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          APK: ${{ steps.apk.outputs.file }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "Strix $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "$APK"

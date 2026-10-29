@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/../env.sh"
 
 echo ""
@@ -44,10 +45,13 @@ make install 2>&1
 if [ -f ${SYSROOT}/lib/mariadb/libmariadbclient.a ]; then
   cp ${SYSROOT}/lib/mariadb/libmariadbclient.a ${SYSROOT}/lib/libmysqlclient.a
   # Copy headers to standard location
-  cp -r ${SYSROOT}/include/mariadb/* ${SYSROOT}/include/ 2>/dev/null || true
+  cp -r ${SYSROOT}/include/mariadb/* ${SYSROOT}/include/
 elif [ -f ${SYSROOT}/lib/libmariadbclient.a ]; then
   cp ${SYSROOT}/lib/libmariadbclient.a ${SYSROOT}/lib/libmysqlclient.a
+else
+  echo "FAIL: libmariadbclient.a not found under ${SYSROOT}/lib" >&2
+  exit 1
 fi
 
 echo "=== mariadb-connector-c installed to ${SYSROOT} ==="
-ls -lh ${SYSROOT}/lib/libmysqlclient.a 2>/dev/null
+ls -lh ${SYSROOT}/lib/libmysqlclient.a

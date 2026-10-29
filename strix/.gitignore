@@ -14,3 +14,7 @@ keystore.properties
 /ruby-msf/output/
 /app/src/main/assets/ruby-msf-bundle.tar.gz.bin
 /ruby-msf/ruby-msf-bundle.tar.gz
+/tools/tools-bundle.json
+/tools/tools-bundle.json.sig
+/ruby-msf/ruby-msf-bundle.json
+/ruby-msf/ruby-msf-bundle.json.sig

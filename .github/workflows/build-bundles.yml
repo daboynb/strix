@@ -1,0 +1,127 @@
+# Manual / tag-driven bundle builds. The automated weekly path is update-bundles.yml.
+#
+# Tag scheme (the app looks up releases by prefix):
+#   bundles-msf-<MSF_REF>-r<N>   e.g. bundles-msf-6.4.125-r1   -> msf bundle only
+#   bundles-tools-r<N>           e.g. bundles-tools-r3         -> tools bundle only
+# <MSF_REF> must equal MSF_REF in strix/versions.env at the tagged commit.
+# workflow_dispatch builds artifacts only, or publishes with the next free tag when
+# "publish" is set (skipped if a release with the same inputs fingerprint exists).
+# Release assets: <bundle>.tar.gz.bin, <bundle>.json (manifest), <bundle>.json.sig.
+name: Build native bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundles:
+        description: Which bundles to build
+        type: choice
+        options: [both, tools, msf]
+        default: both
+      publish:
+        description: Publish as a release (next free bundles-* tag at this commit)
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'bundles-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundles-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tools: ${{ steps.plan.outputs.tools }}
+      msf: ${{ steps.plan.outputs.msf }}
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_BUNDLES: ${{ inputs.bundles }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          source strix/versions.env
+          tools=false msf=false release=false tag=
+          if [ "$EVENT" = push ]; then
+            release=true tag=$REF_NAME
+            case "$REF_NAME" in
+              bundles-msf-*)
+                [[ "$REF_NAME" =~ ^bundles-msf-${MSF_REF//./\\.}-r[0-9]+$ ]] \
+                  || { echo "::error::tag must be bundles-msf-${MSF_REF}-r<N> (MSF_REF from strix/versions.env)"; exit 1; }
+                msf=true ;;
+              bundles-tools-*)
+                [[ "$REF_NAME" =~ ^bundles-tools-r[0-9]+$ ]] \
+                  || { echo "::error::tag must be bundles-tools-r<N>"; exit 1; }
+                tools=true ;;
+              *) echo "::error::unsupported tag $REF_NAME (use bundles-msf-${MSF_REF}-r<N> or bundles-tools-r<N>)"; exit 1 ;;
+            esac
+          else
+            case "$INPUT_BUNDLES" in
+              both) tools=true msf=true ;;
+              tools) tools=true ;;
+              msf) msf=true ;;
+            esac
+            release=$INPUT_PUBLISH
+          fi
+          { echo "tools=$tools"; echo "msf=$msf"; echo "release=$release"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          echo "tools=$tools msf=$msf release=$release tag=$tag"
+
+  build:
+    needs: plan
+    uses: ./.github/workflows/bundle-build.yml
+    permissions:
+      contents: read
+    with:
+      tools: ${{ needs.plan.outputs.tools == 'true' }}
+      msf: ${{ needs.plan.outputs.msf == 'true' }}
+      signed: true
+    secrets:
+      BUNDLE_SIGNING_KEY: ${{ secrets.BUNDLE_SIGNING_KEY }}
+
+  release:
+    needs: [plan, build]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        id: [tools, msf]
+    steps:
+      - name: Selected?
+        id: sel
+        env:
+          WANT: ${{ (matrix.id == 'tools' && needs.plan.outputs.tools == 'true') || (matrix.id == 'msf' && needs.plan.outputs.msf == 'true') }}
+        run: echo "run=$WANT" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.sel.outputs.run == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.sel.outputs.run == 'true'
+        with:
+          name: bundle-${{ matrix.id }}
+          path: dist
+      - name: Publish
+        if: steps.sel.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ matrix.id }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: strix/scripts/publish-bundle-release.sh "$ID" dist "$GITHUB_SHA" ${TAG:+"$TAG"}
