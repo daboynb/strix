@@ -4,11 +4,18 @@ If you wanna help me
 
 # Strix
 
-> **⚠️ DEVELOPMENT STATUS:** This project is currently under active development and is not yet considered stable.
-
 Strix is an Android network security assessment suite — a modern, ground-up rewrite of the ideas behind [cSploit](https://github.com/cSploit/android), built for current Android versions with a Kotlin + Jetpack Compose stack.
 
-It bundles a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof) and a cross-compiled Ruby + Metasploit Framework runtime inside a single APK.
+It ships a full offensive toolchain (Nmap, Hydra, Ettercap, tcpdump, arpspoof) inside the APK, and downloads a cross-compiled Ruby + Metasploit Framework runtime on demand. Both are updated from signed GitHub releases without reinstalling the app.
+
+## Demo
+
+<p align="center">
+  <img src="strix/docs/demo.gif" alt="Strix: host discovery and port scan" width="320">
+</p>
+
+> **Status:** beta, under active development — usable today, with rough edges. Bug reports and feedback are welcome.
+>
 > **Strix is intended strictly for authorized security testing, education, and research on networks you own or have explicit written permission to assess. Running these tools against systems you do not control is illegal in most jurisdictions.**
 
 ## Screenshots
@@ -44,6 +51,7 @@ _More screenshots are coming._
 | **Exploitation** | Full Metasploit Framework running natively on the device via `msfrpcd`; module browser, exploit runner, interactive Meterpreter sessions |
 | **Traceroute** | UDP / ICMP traceroute with hop-by-hop render |
 | **Router analysis** | Default credential probing against common router admin panels |
+| **Logs** | In-app log viewer with filters and search; export a log file (SSID/BSSID redacted) to attach to bug reports |
 | **WiFi keygen** | Offline WPA/WEP default-key recovery — port of cSploit's `WirelessMatcher` with per-vendor algorithms (Alice, Thomson, Huawei, Dlink, Pirelli, Eircom, Sky, Verizon, Ono, Tecom, Telsey, Zyxel, Comtrend, Andared, Infostrada, Megared, Conn, Discus, EasyBox, PBS, OTE, Wlan2, Wlan6) |
 
 ## Requirements
@@ -51,6 +59,17 @@ _More screenshots are coming._
 - Android **API 29+** (Android 10 or newer)
 - **ARM64** device (`aarch64`)
 - **Root** (`su` must be available — every offensive feature needs raw socket / kernel access the platform does not grant to regular apps)
+- For Metasploit: an Internet connection for the first download (≈330 MB) and about 1.3 GB of free storage during installation
+
+## Tools and Metasploit updates
+
+The native tools and the Metasploit runtime are built by CI and published as signed GitHub releases (`bundles-tools-*`, `bundles-msf-*`). A weekly job picks up new upstream versions (Metasploit, Nmap, Hydra, libraries), rebuilds and verifies them, and publishes them automatically.
+
+The app checks for new bundles at most once a day (optionally on Wi-Fi only) and shows a banner; you choose when to download. Every bundle is verified (signature and SHA-256) before installation, and it is swapped in only when no scan or Metasploit session is running. Settings → Bundles shows the installed versions and lets you check for updates manually.
+
+## Reporting bugs
+
+Open the ⋮ menu → **Logs** → **Share** and attach the exported file to your [issue](https://github.com/daboynb/strix/issues). Please include your device, Android version and root method.
 
 ## Credits and lineage
 
