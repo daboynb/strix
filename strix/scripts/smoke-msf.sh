@@ -73,7 +73,5 @@ smoke_msf() {
 
   # DT_NEEDED of our Ruby, its extensions and the cross-compiled gem extensions must be
   # in the bundle or Android system libs (payload gems ship target binaries: excluded)
-  DEPS_PRUNE=('*/metasploit-payloads-*' '*/metasploit_payloads-mettle-*')
-  deps_check "$rb" "$vroot"
-  DEPS_PRUNE=()
+  deps_check --prune '*/metasploit-payloads-*' --prune '*/metasploit_payloads-mettle-*' "$rb" "$vroot"
 }

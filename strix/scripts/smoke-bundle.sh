@@ -66,14 +66,13 @@ ANDROID_SYSTEM_LIBS="libc.so libm.so libdl.so liblog.so libz.so libandroid.so li
   libjnigraphics.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libOpenSLES.so
   libOpenMAXAL.so libvulkan.so libmediandk.so libneuralnetworks.so libsync.so
   libbinder_ndk.so libnativewindow.so libcamera2ndk.so libaaudio.so libamidi.so"
-# deps_check <dir>... : ELFs and shipped libs are searched under all the given dirs,
-# skipping paths that match a glob in DEPS_PRUNE (e.g. gem-shipped target payloads,
-# which our Ruby never loads).
-DEPS_PRUNE=()
+# deps_check [--prune <glob>]... <dir>... : ELFs and shipped libs are searched under
+# all the given dirs, skipping paths that match a --prune glob (e.g. gem-shipped
+# target payloads, which our Ruby never loads).
 deps_check() {
-  local shipped elf need bad=0 n=0 g
+  local shipped elf need bad=0 n=0
   local -a prune=()
-  for g in "${DEPS_PRUNE[@]}"; do prune+=(-not -path "$g"); done
+  while [ "${1:-}" = --prune ]; do prune+=(-not -path "$2"); shift 2; done
   shipped=" $(find "$@" \( -type f -o -type l \) -name '*.so*' "${prune[@]}" -printf '%f ') "
   while IFS= read -r -d '' elf; do
     file -b "$elf" | grep -q '^ELF ' || continue
