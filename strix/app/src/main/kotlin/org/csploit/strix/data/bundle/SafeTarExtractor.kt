@@ -7,9 +7,6 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.zip.GZIPInputStream
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -49,21 +46,21 @@ object SafeTarExtractor {
                     if (!out.startsWith(rootReal) || out == rootReal) throw UnsafeEntryException("entry escapes root: ${entry.name}")
                     when {
                         entry.isDirectory -> {
-                            ensureParentInside(out, rootReal, entry.name)
+                            TarGuards.ensureParentInside(out, rootReal, entry.name)
                             Files.createDirectories(out)
-                            ensureRealInside(out, rootReal, entry.name)
+                            TarGuards.ensureRealInside(out, rootReal, entry.name)
                             out.toFile().apply { setReadable(true, false); setExecutable(true, false) }
                         }
                         entry.isSymbolicLink -> {
-                            createSymlink(out, entry.linkName, rootReal, entry.name)
+                            TarGuards.createSymlink(out, entry.linkName, rootReal, entry.name)
                             count++
                         }
                         entry.isLink -> {
-                            copyHardlink(out, entry.linkName, rootReal, mapPath, entry.name)
+                            TarGuards.copyHardlink(out, entry.linkName, rootReal, mapPath, entry.name)
                             count++
                         }
                         entry.isFile -> {
-                            prepareTarget(out, rootReal, entry.name)
+                            TarGuards.prepareTarget(out, rootReal, entry.name)
                             out.toFile().outputStream().use { dst ->
                                 var len = tar.read(buffer)
                                 while (len > 0) {
@@ -82,7 +79,7 @@ object SafeTarExtractor {
                 entry = tar.nextEntry
             }
         }
-        verifySymlinks(rootReal)
+        TarGuards.verifySymlinks(rootReal)
         return count
     }
 
@@ -93,65 +90,6 @@ object SafeTarExtractor {
         if (parts.isEmpty()) throw UnsafeEntryException("empty path: $name")
         if (parts.any { it == ".." }) throw UnsafeEntryException("parent traversal: $name")
         return parts.joinToString("/")
-    }
-
-    private fun prepareTarget(out: Path, rootReal: Path, name: String) {
-        ensureParentInside(out, rootReal, name)
-        if (Files.isSymbolicLink(out) || Files.isRegularFile(out, LinkOption.NOFOLLOW_LINKS)) Files.delete(out)
-        else if (Files.isDirectory(out, LinkOption.NOFOLLOW_LINKS)) throw UnsafeEntryException("file over directory: $name")
-    }
-
-    /** Create the parent and make sure its *real* path (symlinks resolved) is inside root. */
-    private fun ensureParentInside(out: Path, rootReal: Path, name: String) {
-        val parent = out.parent
-        // Check the nearest existing ancestor *before* creating anything, so a
-        // symlink that started resolving outside can't make us mkdir out there.
-        var existing: Path = parent
-        while (!Files.exists(existing)) existing = existing.parent ?: break
-        ensureRealInside(existing, rootReal, name)
-        Files.createDirectories(parent)
-        ensureRealInside(parent, rootReal, name)
-    }
-
-    private fun ensureRealInside(p: Path, rootReal: Path, name: String) {
-        if (!p.toRealPath().startsWith(rootReal)) throw UnsafeEntryException("path resolves outside root: $name")
-    }
-
-    private fun createSymlink(out: Path, target: String, rootReal: Path, name: String) {
-        if (target.isEmpty() || target.startsWith("/")) throw UnsafeEntryException("absolute or empty symlink target: $name -> $target")
-        val lexical = out.parent.resolve(target).normalize()
-        if (!lexical.startsWith(rootReal)) throw UnsafeEntryException("symlink escapes root: $name -> $target")
-        prepareTarget(out, rootReal, name)
-        Files.createSymbolicLink(out, Paths.get(target))
-        checkLinkResolution(out, rootReal, name)
-    }
-
-    /** Hardlink names are archive-root relative: copy the (already extracted) target. */
-    private fun copyHardlink(out: Path, target: String, rootReal: Path, mapPath: (String) -> String?, name: String) {
-        val mappedTarget = mapPath(target.removePrefix("./")) ?: throw UnsafeEntryException("hardlink target skipped: $name -> $target")
-        val src = rootReal.resolve(checkRelative(mappedTarget)).normalize()
-        if (!src.startsWith(rootReal) || !Files.isRegularFile(src)) throw UnsafeEntryException("bad hardlink target: $name -> $target")
-        ensureRealInside(src, rootReal, name)
-        prepareTarget(out, rootReal, name)
-        Files.copy(src, out)
-        out.toFile().setReadable(true, false)
-        out.toFile().setExecutable(src.toFile().canExecute(), false)
-    }
-
-    /** A symlink whose target exists must really resolve inside root (catches `a -> .` + `b -> a/..` tricks). */
-    private fun checkLinkResolution(link: Path, rootReal: Path, name: String) {
-        if (!Files.exists(link)) return // dangling: harmless until something exists there
-        if (!link.toRealPath().startsWith(rootReal)) {
-            Files.deleteIfExists(link)
-            throw UnsafeEntryException("symlink resolves outside root: $name")
-        }
-    }
-
-    /** Final pass: links dangling at creation may resolve now that every entry exists. */
-    private fun verifySymlinks(rootReal: Path) {
-        Files.walk(rootReal).use { paths ->
-            paths.filter { Files.isSymbolicLink(it) }.forEach { checkLinkResolution(it, rootReal, rootReal.relativize(it).toString()) }
-        }
     }
 
     private fun applyMode(f: File, mode: Int) {

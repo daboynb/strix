@@ -10,13 +10,6 @@ import org.csploit.strix.core.shellQuote
 import javax.inject.Inject
 import javax.inject.Singleton
 
-sealed class ScanEvent {
-    data class HostFound(val mac: String, val ip: String, val name: String?) : ScanEvent()
-    data class HostLost(val ip: String) : ScanEvent()
-    data class ScanError(val message: String) : ScanEvent()
-    data object ScanEnded : ScanEvent()
-}
-
 /**
  * Runs nmap ARP ping scan and parses its output into ScanEvents.
  * Replaces the old network-radar binary with nmap -sn (already bundled).

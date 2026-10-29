@@ -89,13 +89,7 @@ class NetworkManager @Inject constructor(
         }
 
         // Compute netmask from prefix length
-        val mask = if (prefixLength == 0) 0 else -1 shl (32 - prefixLength)
-        val netmask = "%d.%d.%d.%d".format(
-            (mask shr 24) and 0xFF,
-            (mask shr 16) and 0xFF,
-            (mask shr 8) and 0xFF,
-            mask and 0xFF,
-        )
+        val netmask = prefixToNetmask(prefixLength)
 
         // Interface name
         val interfaceName = linkProperties.interfaceName
@@ -124,14 +118,4 @@ class NetworkManager @Inject constructor(
         Logger.info("NetworkManager: detected network $info")
         return info
     }
-
-    /**
-     * Convert little-endian int (DhcpInfo format) to IP string.
-     */
-    private fun intToIp(ip: Int): String = "%d.%d.%d.%d".format(
-        ip and 0xFF,
-        (ip shr 8) and 0xFF,
-        (ip shr 16) and 0xFF,
-        (ip shr 24) and 0xFF,
-    )
 }

@@ -18,19 +18,12 @@ import org.csploit.strix.data.DaemonState
 import org.csploit.strix.data.MsfDaemon
 import org.csploit.strix.data.MsfRpcClient
 import org.csploit.strix.data.ToolManager
+import org.csploit.strix.data.coreVersion
+import org.csploit.strix.data.sessionList
+import org.csploit.strix.data.sessionStop
 import org.csploit.strix.data.bundle.BundleState
 import org.csploit.strix.data.bundle.BundleUpdateManager
-import org.csploit.strix.domain.model.MsfSession
 import javax.inject.Inject
-
-data class MsfUiState(
-    val msfInstalled: Boolean = false,
-    val isConnected: Boolean = false,
-    val msfVersion: String? = null,
-    val sessions: List<MsfSession> = emptyList(),
-    val error: String? = null,
-    val connecting: Boolean = false,
-)
 
 @HiltViewModel
 class MsfViewModel @Inject constructor(

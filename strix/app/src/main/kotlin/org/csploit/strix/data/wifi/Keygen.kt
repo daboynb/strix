@@ -102,42 +102,11 @@ abstract class Keygen(
             return ret
         }
 
-        private val HEX_CHAR_TABLE = byteArrayOf(
-            '0'.code.toByte(), '1'.code.toByte(), '2'.code.toByte(), '3'.code.toByte(),
-            '4'.code.toByte(), '5'.code.toByte(), '6'.code.toByte(), '7'.code.toByte(),
-            '8'.code.toByte(), '9'.code.toByte(), 'a'.code.toByte(), 'b'.code.toByte(),
-            'c'.code.toByte(), 'd'.code.toByte(), 'e'.code.toByte(), 'f'.code.toByte()
-        )
+        fun getHexString(raw: ByteArray): String = KeygenHex.of(raw)
 
-        fun getHexString(raw: ByteArray): String {
-            val hex = ByteArray(2 * raw.size)
-            var index = 0
-            for (b in raw) {
-                val v = b.toInt() and 0xFF
-                hex[index++] = HEX_CHAR_TABLE[v ushr 4]
-                hex[index++] = HEX_CHAR_TABLE[v and 0xF]
-            }
-            return String(hex, Charsets.US_ASCII)
-        }
+        fun getHexString(raw: ShortArray): String = KeygenHex.of(raw)
 
-        fun getHexString(raw: ShortArray): String {
-            val hex = ByteArray(2 * raw.size)
-            var index = 0
-            for (b in raw) {
-                val v = b.toInt() and 0xFF
-                hex[index++] = HEX_CHAR_TABLE[v ushr 4]
-                hex[index++] = HEX_CHAR_TABLE[v and 0xF]
-            }
-            return String(hex, Charsets.US_ASCII)
-        }
-
-        fun getHexString(raw: Short): String {
-            val hex = ByteArray(2)
-            val v = raw.toInt() and 0xFF
-            hex[0] = HEX_CHAR_TABLE[v ushr 4]
-            hex[1] = HEX_CHAR_TABLE[v and 0xF]
-            return String(hex, Charsets.US_ASCII)
-        }
+        fun getHexString(raw: Short): String = KeygenHex.of(raw)
 
         /** Convenience: compute MD5 digest. */
         fun md5(data: ByteArray): ByteArray =

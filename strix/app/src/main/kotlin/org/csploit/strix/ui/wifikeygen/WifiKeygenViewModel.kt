@@ -1,7 +1,6 @@
 package org.csploit.strix.ui.wifikeygen
 
 import android.content.Context
-import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,24 +18,6 @@ import kotlinx.coroutines.withContext
 import org.csploit.strix.data.wifi.Keygen
 import org.csploit.strix.data.wifi.WirelessMatcher
 import javax.inject.Inject
-
-data class WifiNetwork(
-    val ssid: String,
-    val bssid: String,
-    val level: Int,
-    val encryption: String,
-    val frequency: Int,
-    val hasKeygen: Boolean,
-    val keys: List<String>? = null,
-    val error: String? = null,
-    val isGenerating: Boolean = false,
-)
-
-data class WifiKeygenUiState(
-    val isScanning: Boolean = false,
-    val networks: List<WifiNetwork> = emptyList(),
-    val error: String? = null,
-)
 
 @HiltViewModel
 class WifiKeygenViewModel @Inject constructor(
@@ -137,16 +118,6 @@ class WifiKeygenViewModel @Inject constructor(
                 if (it.bssid == bssid) transform(it) else it
             },
         )
-    }
-
-    private fun getSecurity(result: ScanResult): String {
-        val cap = result.capabilities ?: ""
-        return when {
-            cap.contains("WPA2") -> "WPA2"
-            cap.contains("WPA") -> "WPA"
-            cap.contains("WEP") -> "WEP"
-            else -> "Open"
-        }
     }
 
     override fun onCleared() {

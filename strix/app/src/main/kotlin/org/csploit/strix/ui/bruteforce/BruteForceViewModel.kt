@@ -18,56 +18,16 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
 import org.csploit.strix.core.ScanRegistry
-import org.csploit.strix.core.shellQuote
 import org.csploit.strix.data.AppSettings
-import org.csploit.strix.data.BruteForceSession
 import org.csploit.strix.data.BruteForceSessionStore
 import org.csploit.strix.data.CredentialTester
 import org.csploit.strix.data.HydraModules
 import org.csploit.strix.data.ToolManager
 import org.csploit.strix.ui.navigation.Routes
-import java.io.File
 import javax.inject.Inject
-
-enum class PasswordMode { WORDLIST, CHARSET }
-
-data class BruteForceUiState(
-    val isRunning: Boolean = false,
-    val methods: List<String> = emptyList(),
-    val method: String = "",
-    val path: String = "/",
-    val logLines: List<String> = emptyList(),
-    val foundCreds: String? = null,
-    val customUsersPath: String? = null,
-    val customPasswordsPath: String? = null,
-    val passwordMode: PasswordMode = PasswordMode.WORDLIST,
-    val charsetLower: Boolean = true,
-    val charsetUpper: Boolean = false,
-    val charsetDigits: Boolean = true,
-    val passMin: Int = 1,
-    val passMax: Int = 6,
-    val statusLine: String? = null,
-    val progress: Float? = null,
-)
-
-/** UI-selected fields; persistent attack state lives in [BruteForceSessionStore]. */
-private data class LocalState(
-    val method: String,
-    val path: String = "/",
-    val customUsersPath: String? = null,
-    val customPasswordsPath: String? = null,
-    val passwordMode: PasswordMode = PasswordMode.WORDLIST,
-    val charsetLower: Boolean = true,
-    val charsetUpper: Boolean = false,
-    val charsetDigits: Boolean = true,
-    val passMin: Int = 1,
-    val passMax: Int = 6,
-)
 
 @HiltViewModel
 class BruteForceViewModel @Inject constructor(
@@ -104,8 +64,8 @@ class BruteForceViewModel @Inject constructor(
             store.sessions.map { it[BruteForceSessionStore.keyFor(ip, port, local.method)] }
         },
     ) { local, session ->
-        session.toUiState(local)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, null.toUiState(_local.value))
+        session.toUiState(local, methods)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null.toUiState(_local.value, methods))
 
     private var hydraJob: Job? = null
 
@@ -137,7 +97,7 @@ class BruteForceViewModel @Inject constructor(
 
     fun pickUsersFile(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
-            copyUriToInternal(uri, "users_custom.txt")?.let { path ->
+            copyUriToInternal(context, toolManager, uri, "users_custom.txt")?.let { path ->
                 _local.value = _local.value.copy(customUsersPath = path)
                 val key = currentKey()
                 store.appendLog(key, "[+] Users wordlist: $path")
@@ -147,7 +107,7 @@ class BruteForceViewModel @Inject constructor(
 
     fun pickPasswordsFile(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
-            copyUriToInternal(uri, "passwords_custom.txt")?.let { path ->
+            copyUriToInternal(context, toolManager, uri, "passwords_custom.txt")?.let { path ->
                 _local.value = _local.value.copy(customPasswordsPath = path)
                 val key = currentKey()
                 store.appendLog(key, "[+] Passwords wordlist: $path")
@@ -162,21 +122,6 @@ class BruteForceViewModel @Inject constructor(
     fun clearCustomPasswords() {
         _local.value = _local.value.copy(customPasswordsPath = null)
     }
-
-    private suspend fun copyUriToInternal(uri: Uri, name: String): String? =
-        withContext(Dispatchers.IO) {
-            try {
-                val outFile = File(toolManager.corePath, name)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    outFile.outputStream().use { input.copyTo(it) }
-                }
-                outFile.setReadable(true, false)
-                outFile.absolutePath
-            } catch (e: Exception) {
-                Logger.warning("copyUriToInternal failed: ${e.message}")
-                null
-            }
-        }
 
     fun start() {
         hydraJob?.cancel()
@@ -194,33 +139,14 @@ class BruteForceViewModel @Inject constructor(
         store.resetForNewRun(key, ip, port, method)
 
         val (defaultUsers, defaultPasswords) = credentialTester.getWordlistPaths()
-        val usersPath = local.customUsersPath ?: defaultUsers
-
-        val passArg = when (local.passwordMode) {
-            PasswordMode.WORDLIST -> {
-                val path = local.customPasswordsPath ?: defaultPasswords
-                "-P ${shellQuote(path)}"
-            }
-            PasswordMode.CHARSET -> {
-                val charset = buildString {
-                    if (local.charsetLower) append("a")
-                    if (local.charsetUpper) append("A")
-                    if (local.charsetDigits) append("1")
-                }
-                "-x ${local.passMin}:${local.passMax}:$charset"
-            }
-        }
-
-        val needsPath = method.contains("http")
-        // The http(s)-post-form spec ("/login.php:user=^USER^&pass=^PASS^:F=x")
-        // contains shell metacharacters: every user-controlled word is quoted.
-        val target = if (needsPath) {
-            "${shellQuote(ip)} ${shellQuote(method)} ${shellQuote(local.path)}"
-        } else {
-            "${shellQuote(ip)} ${shellQuote(method)}"
-        }
-
-        val command = "hydra -L ${shellQuote(usersPath)} $passArg -f -t ${appSettings.hydraThreads} -s $port $target"
+        val command = buildHydraCommand(
+            local = local,
+            ip = ip,
+            port = port,
+            threads = appSettings.hydraThreads,
+            defaultUsers = defaultUsers,
+            defaultPasswords = defaultPasswords,
+        )
         store.appendLog(key, "[+] $command")
 
         val id = taskId(method)
@@ -308,23 +234,4 @@ class BruteForceViewModel @Inject constructor(
         super.onCleared()
         // hydraJob lives in ScanRegistry.appScope and intentionally survives VM destruction.
     }
-
-    private fun BruteForceSession?.toUiState(local: LocalState): BruteForceUiState = BruteForceUiState(
-        isRunning = this?.isRunning ?: false,
-        methods = methods,
-        method = local.method,
-        path = local.path,
-        logLines = this?.logLines ?: emptyList(),
-        foundCreds = this?.foundCreds,
-        customUsersPath = local.customUsersPath,
-        customPasswordsPath = local.customPasswordsPath,
-        passwordMode = local.passwordMode,
-        charsetLower = local.charsetLower,
-        charsetUpper = local.charsetUpper,
-        charsetDigits = local.charsetDigits,
-        passMin = local.passMin,
-        passMax = local.passMax,
-        statusLine = this?.statusLine,
-        progress = this?.progress,
-    )
 }

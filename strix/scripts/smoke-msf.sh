@@ -1,5 +1,5 @@
 #!/bin/bash
-# msf-specific part of smoke-bundle.sh (sourced; uses root, require, fail, pass, elf_check).
+# msf-specific part of smoke-bundle.sh (sourced; uses root, require, fail, pass, elf_check, deps_check).
 # shellcheck disable=SC2154  # root is set by smoke-bundle.sh
 
 # Print "name version" for every gemspec in the given specification dirs.
@@ -70,4 +70,10 @@ smoke_msf() {
   done < <(find "$vroot/gems" -type f \( -name '*.so' -o -name '*.so.*' \) \
              -not -path '*/metasploit-payloads-*' -not -path '*/metasploit_payloads-mettle-*' -print0)
   [ "$bad" = 1 ] || pass "vendored gem .so files are aarch64"
+
+  # DT_NEEDED of our Ruby, its extensions and the cross-compiled gem extensions must be
+  # in the bundle or Android system libs (payload gems ship target binaries: excluded)
+  DEPS_PRUNE=('*/metasploit-payloads-*' '*/metasploit_payloads-mettle-*')
+  deps_check "$rb" "$vroot"
+  DEPS_PRUNE=()
 }

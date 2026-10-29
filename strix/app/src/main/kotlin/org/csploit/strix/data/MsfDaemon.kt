@@ -17,9 +17,7 @@ import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
 import org.csploit.strix.core.StrixNotifications
-import org.csploit.strix.core.shellQuote
 import org.csploit.strix.data.bundle.RootFs
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -107,7 +105,7 @@ class MsfDaemon @Inject constructor(
 
     private suspend fun runStart(gen: Long) {
         // Kill any orphaned msfrpcd processes from previous sessions
-        killOrphanedDaemons()
+        killOrphanedMsfrpcd()
         if (!isCurrent(gen)) return
 
         if (!toolManager.isMsfInstalled()) {
@@ -115,44 +113,17 @@ class MsfDaemon @Inject constructor(
             transition(gen) { DaemonState.FAILED }
             return
         }
-        val homePath = toolManager.msfHomePath.trimEnd('/')
-        migrateMsfHome()
-
-        val rubyPath = toolManager.rubyPath.trimEnd('/')
-        val msfPath = toolManager.msfPath.trimEnd('/')
-        val rubyBin = "$rubyPath/bin/ruby"
-        val rubyApiVersion = RubyExtractor.detectRubyApiVersion(File(rubyPath)) ?: "3.3.0"
-
-        val user = appSettings.msfRpcUser
-        val pass = appSettings.msfRpcPassword
-        val port = appSettings.msfRpcPort
-        val disableSslFlag = if (appSettings.msfRpcSsl) "" else " -S"
-
-        // -f keeps msfrpcd in foreground so ProcessManager can track it
-        val cmd = "$rubyBin $msfPath/msfrpcd -f -a 127.0.0.1 -p $port " +
-            "-U ${shellQuote(user)} -P ${shellQuote(pass)}$disableSslFlag"
-        // Quoted form first: with a ' in the password the raw string is not a
-        // substring of the command line.
-        val secrets = if (pass.isEmpty()) emptyList() else listOf(shellQuote(pass), pass)
-
-        val env = mapOf(
-            "HOME" to homePath,
-            "PATH" to "$rubyPath/bin:$msfPath:/system/bin:/system/xbin",
-            "LD_LIBRARY_PATH" to "$rubyPath/lib",
-            "RUBYLIB" to "$rubyPath/lib/ruby/$rubyApiVersion:${detectArchDir(rubyPath, rubyApiVersion)}",
-            "GEM_HOME" to "$msfPath/vendor/bundle/ruby/$rubyApiVersion",
-            "GEM_PATH" to "$msfPath/vendor/bundle/ruby/$rubyApiVersion:$rubyPath/lib/ruby/gems/$rubyApiVersion",
-            "OPENSSL_CONF" to "$rubyPath/ssl/openssl.cnf",
-            "OPENSSL_MODULES" to "$rubyPath/lib/ossl-modules",
-        )
+        migrateMsfHome(toolManager, rootFs)
+        val launch = buildMsfrpcdLaunch(toolManager, appSettings)
+        val port = launch.port
 
         // Process watcher lives in the singleton scope, beyond this startup sequence
         val procJob = scope.launch {
             processManager.execute(
-                command = cmd,
-                env = env,
+                command = launch.command,
+                env = launch.env,
                 asSu = true,
-                secrets = secrets,
+                secrets = launch.secrets,
             ).collect { event ->
                 when (event) {
                     is ProcessEvent.StdoutLine -> appendLog(event.line)
@@ -230,7 +201,7 @@ class MsfDaemon @Inject constructor(
         if (!failed) return
         procJob.cancel()
         rpcClient.disconnect()
-        killOrphanedDaemons()
+        killOrphanedMsfrpcd()
     }
 
     fun stop() {
@@ -248,7 +219,7 @@ class MsfDaemon @Inject constructor(
             lastOp = scope.launch {
                 previous?.join()
                 rpcClient.disconnect()
-                killOrphanedDaemons()
+                killOrphanedMsfrpcd()
             }
         }
         appendLog("[daemon stopped]")
@@ -266,32 +237,13 @@ class MsfDaemon @Inject constructor(
         val op = synchronized(lock) { lastOp }
         op?.join()
         withContext(Dispatchers.IO) {
-            killOrphanedDaemons()
-            migrateMsfHome()
+            killOrphanedMsfrpcd()
+            migrateMsfHome(toolManager, rootFs)
         }
     }
 
     fun endMaintenance() {
         synchronized(lock) { maintenance = false }
-    }
-
-    /**
-     * msfrpcd used to run with HOME=ruby/, so ~/.msf4 (database config,
-     * history, loot) lives inside the bundle dir and is root-owned. Move it to
-     * msf-home/ once; blocking, call on Dispatchers.IO.
-     */
-    private fun migrateMsfHome() {
-        val home = File(toolManager.msfHomePath)
-        home.mkdirs()
-        val legacy = File(toolManager.rubyPath, ".msf4")
-        if (!rootFs.exists(legacy)) return
-        val target = File(home, ".msf4")
-        if (rootFs.exists(target)) return // already migrated; the stale copy goes away with ruby/
-        val ok = rootFs.su(
-            "cp -a ${shellQuote(legacy.absolutePath)} ${shellQuote(home.absolutePath)}/ && " +
-                "rm -rf ${shellQuote(legacy.absolutePath)}",
-        )
-        Logger.info("MsfDaemon: migrated ~/.msf4 to ${home.absolutePath}: $ok")
     }
 
     private fun isCurrent(gen: Long): Boolean = synchronized(lock) { gen == generation }
@@ -325,21 +277,7 @@ class MsfDaemon @Inject constructor(
                 val seenSessionIds = mutableSetOf<Int>()
                 while (isActive && isCurrent(gen) && _state.value == DaemonState.READY) {
                     try {
-                        val sessions = rpcClient.sessionList()
-                        for (s in sessions) {
-                            if (seenSessionIds.add(s.id)) {
-                                val info = buildString {
-                                    append(s.type)
-                                    if (s.targetHost.isNotEmpty()) append(" @ ${s.targetHost}")
-                                    if (s.viaExploit.isNotEmpty()) append(" via ${s.viaExploit}")
-                                }
-                                notifications.notifySessionOpened(s.id, info)
-                                Logger.info("MsfDaemon: session opened #${s.id} $info")
-                            }
-                        }
-                        // Drop ids that have closed so we re-notify if an id is reused.
-                        val currentIds = sessions.map { it.id }.toSet()
-                        seenSessionIds.retainAll(currentIds)
+                        notifyNewSessions(rpcClient, notifications, seenSessionIds)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
@@ -349,30 +287,6 @@ class MsfDaemon @Inject constructor(
                 }
             }
         }
-    }
-
-    /** Blocking (su + waitFor + sleep): call only from [scope] (Dispatchers.IO). */
-    private fun killOrphanedDaemons() {
-        try {
-            val pb = ProcessBuilder("su", "-c", "pkill -f msfrpcd")
-            val p = pb.start()
-            p.waitFor()
-            // Small delay to let the port be released
-            Thread.sleep(500)
-            Logger.info("MsfDaemon: killed orphaned msfrpcd processes")
-        } catch (e: Exception) {
-            Logger.debug("MsfDaemon: no orphaned processes to kill: ${e.message}")
-        }
-    }
-
-    /** Find the arch-specific directory (e.g. aarch64-linux-android-android) */
-    private fun detectArchDir(rubyPath: String, apiVersion: String): String {
-        val versionDir = File(rubyPath, "lib/ruby/$apiVersion")
-        val archDir = versionDir.listFiles()
-            ?.filter { it.isDirectory && it.name.startsWith("aarch64") }
-            ?.maxByOrNull { it.name }
-            ?.absolutePath
-        return archDir ?: "$rubyPath/lib/ruby/$apiVersion/aarch64-linux"
     }
 
     private fun appendLog(line: String) {
