@@ -25,10 +25,18 @@ export CPPFLAGS="-I${SYSROOT}/include"
 
 # Build only libpq (client library) — not the full server
 cd src/interfaces/libpq
+# libpq's "must not call exit" check flags pthread_exit (pulled in by the
+# Android libc); upstream master whitelists it (libpq_check.pl), backport that.
+sed -i 's/grep -v __cxa_atexit | grep exit/grep -v -e __cxa_atexit -e pthread_exit | grep exit/' Makefile
+grep -q 'pthread_exit | grep exit' Makefile
 make -j$(nproc) 2>&1
 make install 2>&1
 # make install only installs headers/shared libs — manually copy static lib
 cp libpq.a ${SYSROOT}/lib/
+# The bundle links libpq statically (only the tools' own .so files are shipped);
+# with the shared library in the sysroot the linker would pick libpq.so.5 and
+# hydra would need a library that isn't on the device.
+rm -f ${SYSROOT}/lib/libpq.so*
 
 # Also install common headers needed by libpq-fe.h
 cd /opt/src/postgresql-${POSTGRESQL_VERSION}/src/include

@@ -1,0 +1,40 @@
+--- a/src/ec_sniff_unified.c	2026-10-29 13:40:51.734293420 +0100
++++ b/src/ec_sniff_unified.c	2026-10-29 13:40:51.750293496 +0100
+@@ -104,17 +104,19 @@
+ 
+ void forward_unified_sniff(struct packet_object *po)
+ {
+-   /* if it was not initialized, no packet are forwardable */
++   /* Android blocks AF_INET+SOCK_RAW, so lnet_IP4/IP6 may be NULL:
++    * forward at L2 (AF_PACKET) instead of dropping the packet */
++   int use_l2 = 0;
+    switch(ntohs(po->L3.proto)) {
+       case LL_TYPE_IP:
+          if(!EC_GBL_LNET->lnet_IP4)
+-            return;
++            use_l2 = 1;
+          if(!(EC_GBL_IFACE->has_ipv4))
+             return;
+          break;
+       case LL_TYPE_IP6:
+          if(!EC_GBL_LNET->lnet_IP6)
+-            return;
++            use_l2 = 1;
+          if(!(EC_GBL_IFACE->has_ipv6))
+             return;
+          break;
+@@ -130,8 +132,12 @@
+     */
+ 
+    /* don't forward dropped packets */
+-   if ((po->flags & PO_DROPPED) == 0)
+-      send_to_L3(po);
++   if ((po->flags & PO_DROPPED) == 0) {
++      if (use_l2)
++         send_to_L2(po);
++      else
++         send_to_L3(po);
++   }
+ 
+     /* 
+      * if the packet was modified and it exceeded the mtu,

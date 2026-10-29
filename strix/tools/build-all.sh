@@ -6,15 +6,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="/opt/output"
 
+# Each step logs to its own file instead of stdout: BuildKit truncates a
+# step's output at 2 MiB, which would hide the actual error. On failure the
+# tail of the step's log is printed last, so it is always visible.
+LOG_DIR=/opt/build-logs
+mkdir -p "$LOG_DIR"
 run() {
-  echo ""
-  echo "========================================================"
-  echo "  $1"
-  echo "========================================================"
-  if ! bash "$SCRIPT_DIR/$2"; then
-    echo "FAIL: $1 ($2)" >&2
+  local log
+  log="$LOG_DIR/$(basename "$2" .sh).log"
+  echo "=== $1 (log: $log)"
+  if ! bash "$SCRIPT_DIR/$2" > "$log" 2>&1; then
+    echo "" >&2
+    echo "FAIL: $1 ($2) - last 200 lines of $log:" >&2
+    tail -n 200 "$log" >&2
     exit 1
   fi
+  tail -n 2 "$log"
 }
 
 echo "========================================================"
@@ -41,6 +48,7 @@ run "libgcrypt"     libs/libgcrypt.sh
 run "libssh"        libs/libssh.sh
 run "libpq"         libs/libpq.sh
 run "mariadb"       libs/mariadb.sh
+run "cyrus-sasl"    libs/cyrus-sasl.sh
 run "libmemcached"  libs/libmemcached.sh
 
 # Stage 4: Tools

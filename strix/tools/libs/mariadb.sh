@@ -4,7 +4,7 @@ source "$(dirname "$0")/../env.sh"
 
 echo ""
 echo "=== Building mariadb-connector-c ${MARIADB_VERSION} ==="
-cd /opt/src/mariadb-connector-c-${MARIADB_VERSION}
+cd /opt/src/mariadb-connector-c-${MARIADB_VERSION}-src
 
 rm -rf build && mkdir -p build && cd build
 

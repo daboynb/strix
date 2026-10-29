@@ -7,7 +7,8 @@
 #   (manual fix), build that branch as-is.
 # - Otherwise look up upstream (scripts/check-updates.sh <track>); no change -> close a
 #   stale bot PR and stop; change -> commit versions.env on automation/<track>-update
-#   (force-pushed, always based on <base>) and open/refresh a DRAFT PR.
+#   (force-pushed, always based on <base>) and open/refresh a DRAFT PR. The msf track also
+#   regenerates strix/ruby-msf/02-msf/Gemfile.lock (gem sha256s, scripts/msf-gemlock.sh).
 # - Decide which bundles to build; a bundle whose inputs fingerprint is already
 #   released is not rebuilt.
 # Outputs (GITHUB_OUTPUT): changed, sha, pr, tools, msf, branch.
@@ -47,6 +48,13 @@ if [ "$mode" = existing ]; then
 else
   lookup_rc=0
   "${SCRIPT_DIR}/check-updates.sh" "$track" "$summary" || lookup_rc=$?
+  if [ "$lookup_rc" -eq 3 ]; then
+    # A new upstream release failed its signature check: propose nothing, fail the run
+    # (update-report.sh opens the issue) so a human checks the signing key first.
+    git checkout --quiet -- strix/versions.env
+    cat "$summary" >&2
+    die "OpenPGP signature check failed for a new ${track} release (see above); no bump proposed until a human verifies the signing key and pins it in strix/scripts/keys/"
+  fi
   if git diff --quiet -- strix/versions.env; then
     echo "No ${track} updates"
     if [ -n "$pr" ]; then
@@ -58,8 +66,13 @@ else
   if [ "$lookup_rc" -ne 0 ]; then
     echo "::warning::some upstream lookups failed (see log); continuing with the updates that were found"
   fi
+  gemlock=strix/ruby-msf/02-msf/Gemfile.lock
+  if [ "$track" = msf ]; then
+    # New MSF commit -> its Gemfile.lock + fresh gem sha256 checksums (ships in the same PR)
+    "${SCRIPT_DIR}/msf-gemlock.sh" update
+  fi
   git checkout --quiet -B "$branch"
-  git commit --quiet -m "chore(bundles): automated ${track} update" -- strix/versions.env
+  git commit --quiet -m "chore(bundles): automated ${track} update" -- strix/versions.env "$gemlock"
   git push --quiet --force origin "$branch"
 fi
 sha=$(git rev-parse HEAD)
@@ -89,7 +102,9 @@ body="${RUNNER_TEMP:-/tmp}/pr-${track}.md"
   echo
   cat "$summary"
   echo
-  echo "New SHA256 values are computed by downloading the files in CI (trust on first use)."
+  echo "New SHA256 values are computed by downloading the files in CI; signed upstreams were"
+  echo "verified against the OpenPGP keys pinned in \`strix/scripts/keys/\`, the rest is trust on"
+  echo "first use. MSF bumps also refresh \`strix/ruby-msf/02-msf/Gemfile.lock\` (gem sha256 from rubygems.org)."
   echo "This PR stays a draft until the affected bundles built, passed the smoke checks and were"
   echo "released; it is then squash-merged automatically. To fix a failure, push commits to"
   echo "\`${branch}\` and re-run the *Update bundles* workflow: it builds the branch as-is."

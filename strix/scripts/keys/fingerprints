@@ -1,0 +1,35 @@
+# Pinned OpenPGP release-signing keys, read by scripts/verify-sig.sh.
+#   <keyring> <primary key fingerprint>...
+# <keyring>.asc next to this file holds exactly these public keys (gpg --export-options
+# export-minimal), fetched from the official source noted above each line. A signature
+# only counts if its primary key fingerprint is listed here; a new signing key means a
+# human checks it at the official source and adds it (key file + fingerprint) by hand.
+
+# https://svn.nmap.org/nmap/docs/nmap_gpgkeys.txt (fingerprint also on nmap.org/book/install.html)
+nmap 436D66AB9A798425FDA0E3F801AF9F036B9355D0
+# https://www.tcpdump.org/release/signing-key.asc (libpcap + tcpdump)
+tcpdump 1F166A5742ABB9E0249A8D30E089DEF1D9C15D0D
+# Simon Josefsson, from https://ftp.gnu.org/gnu/gnu-keyring.gpg
+libidn B1D2BD1375BECB784CF4F8C4D73CF638C53C06BE
+# https://openssl-library.org/source/pubkeys.asc (OMC key expired 2025-02: still valid for older releases)
+openssl B146647E45A7B33947AB226B2A2C87D161692D40 BA5473A2B0587B07FB27CF2D216094DFD0CB81EF EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5
+# Daniel Stenberg, https://daniel.haxx.se/mykey.asc (signs curl and libssh2)
+curl 27EDEAF22F3ABCEB50DB9A125CC908FDB71E12C2
+libssh2 27EDEAF22F3ABCEB50DB9A125CC908FDB71E12C2
+# https://www.libssh.org/get-it/: <0.11 by Andreas Schneider (cryptomilk.org key), >=0.11 by
+# https://www.libssh.org/files/0x03D5DF8CFDD3E8E7_libssh_libssh_org_gpgkey.asc
+libssh 8DFF53E18F2ABC8D8F3C92237EE0FC4DCC014E3D 88A228D89B07C2C77D0C780903D5DF8CFDD3E8E7
+# PCRE2 SECURITY.md: <=10.44 Philip Hazel (github.com/PhilipHazel.gpg), >=10.45 Nicholas Wilson
+# (keyserver.ubuntu.com copy: github.com/NWilson.gpg lacks his signing subkeys)
+pcre2 45F68D54BBE23FB3039B46E59766E084FB0F43D8 A95536204A3BB489715231282A98E77EB6F24CA8
+# https://gnupg.org/signature_key.asc, fingerprints as listed on gnupg.org/signature_key.html
+# (libgpg-error, libgcrypt)
+gnupg 6DAA6E64A76D2840571B4902528897B826403ADA AC8E115BF73E2D8D47FA9908E98E9B2D19C6C8BD 3B761AE4E63BF3519CE7D63BECB664CBE1332EEF D02AE49173BDAD56E4F88223707E56D3DEF4115C 02F38DFF731FF97CB039A1DA549E695E905BA208 1493269DE61F124AA69A316E3ADF34EBDBB200A4
+# Mark Adler, https://madler.net/madler/pgp.html (linked from zlib.net)
+zlib 5ED46A6721D365587791E2AA783FCD8E58BCAFBA
+# https://mariadb.org/mariadb_release_signing_key.pgp
+mariadb 177F4010FE56CA3336300305F1656F24C74CD1D8
+# Cyrus SASL 2.1.28: Quanah Gibson-Mount, who published the cyrusimap/cyrus-sasl release; the
+# same key signs the cyrus-sasl-2.1.28 git tag (GitHub-verified) and is registered on his
+# GitHub account (github.com/quanah.gpg, the key file used). The site publishes no fingerprint.
+cyrus-sasl DEA1999F0CDB1AAEBA001E0DBEE3E3B4D2F06546

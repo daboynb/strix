@@ -21,9 +21,13 @@ RUN apt-get update && apt-get install -y \
     build-essential autoconf bison flex libtool \
     ruby wget curl git pkg-config zip unzip file \
     libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev \
+    gpgv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=strix-scripts fetch.sh /usr/local/bin/strix-fetch
+# Download helper + signature verifier + pinned release-signing keys (strix/scripts)
+COPY --from=strix-scripts fetch.sh verify-sig.sh /opt/strix-scripts/
+COPY --from=strix-scripts keys /opt/strix-scripts/keys
+RUN ln -s /opt/strix-scripts/fetch.sh /usr/local/bin/strix-fetch
 
 ARG NDK_VERSION
 ARG NDK_SHA256
@@ -73,9 +77,13 @@ RUN apt-get update && apt-get install -y \
     libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev \
     libsqlite3-dev libpq-dev libxml2-dev libxslt1-dev \
     libpcap-dev flex bison xz-utils \
+    gpgv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=strix-scripts fetch.sh /usr/local/bin/strix-fetch
+# Download helper + signature verifier + pinned release-signing keys (strix/scripts)
+COPY --from=strix-scripts fetch.sh verify-sig.sh /opt/strix-scripts/
+COPY --from=strix-scripts keys /opt/strix-scripts/keys
+RUN ln -s /opt/strix-scripts/fetch.sh /usr/local/bin/strix-fetch
 
 # Artifacts from stage 1
 COPY --from=ruby /output/ruby-android /opt/ruby-android
@@ -100,8 +108,14 @@ ARG LIBXSLT_VERSION
 ARG LIBXSLT_SHA256
 ARG MSF_REF
 ARG MSF_COMMIT
+ARG BUNDLER_VERSION
+ARG BUNDLER_SHA256
 ENV API_LEVEL=${API_LEVEL}
 
+# MSF Gemfile.lock + gem sha256 checksums, and its checker (scripts/msf-gemlock.sh)
+COPY --from=strix-scripts msf-gemlock.sh /opt/strix-scripts/
+RUN ln -s /opt/strix-scripts/msf-gemlock.sh /usr/local/bin/strix-msf-gemlock
+COPY 02-msf/Gemfile.lock /opt/msf-Gemfile.lock
 COPY 02-msf/build-msf.sh /opt/build-msf.sh
 RUN chmod +x /opt/build-msf.sh && /opt/build-msf.sh
 

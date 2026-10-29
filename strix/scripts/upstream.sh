@@ -27,8 +27,8 @@ upstream_latest() {
     PCRE2)        gh_release PCRE2Project/pcre2 pcre2- ;;
     GPG_ERROR)    listing_latest https://gnupg.org/ftp/gcrypt/libgpg-error/ 'libgpg-error-[0-9]+\.[0-9]+\.tar\.bz2' 'libgpg-error-' '.tar.bz2' ;;
     GCRYPT)       listing_latest https://gnupg.org/ftp/gcrypt/libgcrypt/ 'libgcrypt-[0-9]+\.[0-9]+\.[0-9]+\.tar\.bz2' 'libgcrypt-' '.tar.bz2' ;;
+    CYRUS_SASL)   gh_release cyrusimap/cyrus-sasl cyrus-sasl- ;;
     MARIADB)      git_tag_latest https://github.com/mariadb-corporation/mariadb-connector-c.git 'v3\.[0-9]+\.[0-9]+' 'v' ;;
-    LIBMEMCACHED) gh_release awesomized/libmemcached '' ;;
     ZLIB)         gh_release madler/zlib v ;;
     YAML)         gh_release yaml/libyaml '' ;;
     LIBFFI)       gh_release libffi/libffi v ;;
@@ -65,8 +65,8 @@ upstream_url() {
     PCRE2)        echo "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${v}/pcre2-${v}.tar.gz" ;;
     GPG_ERROR)    echo "https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-${v}.tar.bz2" ;;
     GCRYPT)       echo "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-${v}.tar.bz2" ;;
-    MARIADB)      echo "https://github.com/mariadb-corporation/mariadb-connector-c/archive/refs/tags/v${v}.tar.gz" ;;
-    LIBMEMCACHED) echo "https://github.com/awesomized/libmemcached/archive/refs/tags/${v}.tar.gz" ;;
+    CYRUS_SASL)   echo "https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-${v}/cyrus-sasl-${v}.tar.gz" ;;
+    MARIADB)      echo "https://archive.mariadb.org/connector-c-${v}/mariadb-connector-c-${v}-src.tar.gz" ;;
     ZLIB)         echo "https://github.com/madler/zlib/releases/download/v${v}/zlib-${v}.tar.gz" ;;
     YAML)         echo "https://github.com/yaml/libyaml/releases/download/${v}/yaml-${v}.tar.gz" ;;
     LIBFFI)       echo "https://github.com/libffi/libffi/releases/download/v${v}/libffi-${v}.tar.gz" ;;
@@ -74,6 +74,27 @@ upstream_url() {
     LIBXML2)      echo "https://download.gnome.org/sources/libxml2/${v%.*}/libxml2-${v}.tar.xz" ;;
     LIBXSLT)      echo "https://download.gnome.org/sources/libxslt/${v%.*}/libxslt-${v}.tar.xz" ;;
     *) echo "upstream_url: unknown component $1" >&2; return 1 ;;
+  esac
+}
+
+# "<keyring> <signature-url>" for components whose releases are OpenPGP-signed (keyring
+# = name in keys/fingerprints); nothing for the rest. MUST match the Dockerfile/build
+# script strix-fetch calls.
+upstream_sig() {
+  local u; u=$(upstream_url "$1" "$2") || return 1
+  case "$1" in
+    NMAP)               echo "nmap https://nmap.org/dist/sigs/nmap-${2}.tar.bz2.asc" ;;
+    LIBPCAP|TCPDUMP)    echo "tcpdump ${u}.sig" ;;
+    LIBIDN)             echo "libidn ${u}.sig" ;;
+    OPENSSL)            echo "openssl ${u}.asc" ;;
+    CURL)               echo "curl ${u}.asc" ;;
+    LIBSSH2)            echo "libssh2 ${u}.asc" ;;
+    LIBSSH)             echo "libssh ${u}.asc" ;;
+    PCRE2)              echo "pcre2 ${u}.sig" ;;
+    GPG_ERROR|GCRYPT)   echo "gnupg ${u}.sig" ;;
+    ZLIB)               echo "zlib ${u}.asc" ;;
+    MARIADB)            echo "mariadb ${u}.asc" ;;
+    CYRUS_SASL)         echo "cyrus-sasl ${u}.sig" ;;
   esac
 }
 

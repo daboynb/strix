@@ -80,13 +80,19 @@ if [ -f Makefile ]; then
   # Memcached
   if [ -f ${SYSROOT}/lib/libmemcached.a ]; then
     HYDRA_XDEFINES="$HYDRA_XDEFINES -DLIBMCACHED"
-    HYDRA_XLIBS="$HYDRA_XLIBS -lmemcached"
-    if [ -d ${SYSROOT}/include/libmemcached-1.0 ]; then
-      HYDRA_XIPATHS="$HYDRA_XIPATHS -I${SYSROOT}/include/libmemcached-1.0"
-    elif [ -d ${SYSROOT}/include/libmemcached ]; then
-      HYDRA_XIPATHS="$HYDRA_XIPATHS -I${SYSROOT}/include/libmemcached"
+    # libmemcached is C++: hydra links with the C driver, so pull in the
+    # NDK's static C++ runtime explicitly (-static-libstdc++ only affects clang++).
+    # libmemcached is built with SASL (the module authenticates only via SASL): static
+    # libsasl2 follows it, then what libsasl2 needs (libcrypto again: static link order).
+    if [ ! -f ${SYSROOT}/lib/libsasl2.a ]; then
+      echo "FAIL: libmemcached present but libsasl2.a missing (cyrus-sasl.sh)" >&2
+      exit 1
     fi
-    echo "  +memcached: libmemcached found"
+    HYDRA_XLIBS="$HYDRA_XLIBS -lmemcached -lsasl2 -lcrypto -ldl -lc++_static -lc++abi"
+    # hydra includes <libmemcached/memcached.h>, already reachable via
+    # -I${SYSROOT}/include. Don't add include/libmemcached-1.0: it ships its
+    # own limits.h, which would shadow the libc one (INT_MAX undeclared).
+    echo "  +memcached: libmemcached + libsasl2 found"
   fi
 
   # libidn (already compiled in previous stages)
