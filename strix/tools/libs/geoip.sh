@@ -14,6 +14,11 @@ fi
 
 export CFLAGS="-fPIC -O2"
 export LDFLAGS="-fPIE -pie -static-libstdc++"
+# Cross-compiling, configure can't run its malloc(0)/realloc(0) probes and
+# falls back to rpl_malloc/rpl_realloc, which GeoIP never defines (link
+# fails). Bionic returns a valid pointer for size 0, so state the answer.
+export ac_cv_func_malloc_0_nonnull=yes
+export ac_cv_func_realloc_0_nonnull=yes
 
 ./configure \
   --host=${TARGET} \
