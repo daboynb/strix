@@ -98,8 +98,11 @@ RUN : "${API_LEVEL:?}" "${RTMPDUMP_COMMIT:?}" && \
     get "https://github.com/mariadb-corporation/mariadb-connector-c/archive/refs/tags/v${MARIADB_VERSION}.tar.gz" "${MARIADB_SHA256}" mariadb.tar.gz && \
     get "https://github.com/awesomized/libmemcached/archive/refs/tags/${LIBMEMCACHED_VERSION}.tar.gz" "${LIBMEMCACHED_SHA256}" libmemcached.tar.gz && \
     echo "=== rtmpdump (librtmp) @ ${RTMPDUMP_COMMIT} ===" && \
-    git clone https://git.ffmpeg.org/rtmpdump.git && \
-    git -C rtmpdump checkout --detach "${RTMPDUMP_COMMIT}" && \
+    # Fetch the pinned commit directly: a full clone of git.ffmpeg.org's
+    # rtmpdump repo fails ("upload-pack: not our ref 0000...").
+    git init -q rtmpdump && \
+    git -C rtmpdump fetch -q --depth 1 https://git.ffmpeg.org/rtmpdump.git "${RTMPDUMP_COMMIT}" && \
+    git -C rtmpdump checkout -q --detach FETCH_HEAD && \
     test "$(git -C rtmpdump rev-parse HEAD)" = "${RTMPDUMP_COMMIT}" && \
     echo "=== All sources downloaded and verified ==="
 
