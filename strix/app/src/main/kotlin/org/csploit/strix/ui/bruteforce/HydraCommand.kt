@@ -41,5 +41,6 @@ internal fun buildHydraCommand(
         "${shellQuote(ip)} ${shellQuote(method)}"
     }
 
-    return "hydra -L ${shellQuote(usersPath)} $passArg -f -t $threads -s $port $target"
+    // -I: a Stop leaves ./hydra.restore behind; without it the next run waits 10 s on it.
+    return "hydra -I -L ${shellQuote(usersPath)} $passArg -f -t $threads -s $port $target"
 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.RootChecker
+import org.csploit.strix.data.MsfDaemon
 import org.csploit.strix.data.NetworkManager
 import org.csploit.strix.data.ToolManager
 import org.csploit.strix.data.bundle.BundleUpdateManager
@@ -21,6 +22,7 @@ class SplashViewModel @Inject constructor(
     private val toolManager: ToolManager,
     private val networkManager: NetworkManager,
     private val bundleUpdates: BundleUpdateManager,
+    private val msfDaemon: MsfDaemon,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SplashUiState())
@@ -44,6 +46,8 @@ class SplashViewModel @Inject constructor(
                 )
                 return@launch
             }
+
+            msfDaemon.reapOrphans()
 
             // Step 2: Extract tools
             _uiState.value = _uiState.value.copy(step = StartupStep.EXTRACTING_TOOLS)

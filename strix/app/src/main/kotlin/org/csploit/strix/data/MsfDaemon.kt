@@ -227,6 +227,26 @@ class MsfDaemon @Inject constructor(
     }
 
     /**
+     * At app start the daemon is STOPPED, so any msfrpcd still running was left
+     * by an earlier app process (crash, force stop, update while it ran): a
+     * root daemon nobody tracks, and the UI would say "stopped". Kill it.
+     */
+    fun reapOrphans() {
+        synchronized(lock) {
+            if (maintenance || _state.value == DaemonState.STARTING || _state.value == DaemonState.READY) return
+            val gen = generation
+            val previous = lastOp
+            lastOp = scope.launch {
+                previous?.join()
+                if (isCurrent(gen) && msfrpcdRunning()) {
+                    Logger.warning("MsfDaemon: msfrpcd left running by a previous app run, stopping it")
+                    killOrphanedMsfrpcd()
+                }
+            }
+        }
+    }
+
+    /**
      * Stop the daemon, kill any msfrpcd (also ones from older app runs), move
      * legacy user data out of ruby/ and refuse start() until [endMaintenance].
      * Used before swapping the MSF bundle.

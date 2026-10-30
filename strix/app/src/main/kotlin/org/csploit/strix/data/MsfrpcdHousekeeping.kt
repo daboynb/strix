@@ -37,3 +37,15 @@ internal fun killOrphanedMsfrpcd() {
         Logger.debug("MsfDaemon: no orphaned processes to kill: ${e.message}")
     }
 }
+
+/**
+ * True if an msfrpcd process exists. "[m]sfrpcd" doesn't match the command
+ * line of the su shell running pgrep itself. Blocking: Dispatchers.IO only.
+ */
+internal fun msfrpcdRunning(): Boolean = try {
+    val p = ProcessBuilder("su", "-c", "pgrep -f '[m]sfrpcd'").start()
+    p.inputStream.bufferedReader().readText().isNotBlank().also { p.waitFor() }
+} catch (e: Exception) {
+    Logger.debug("MsfDaemon: cannot look for msfrpcd: ${e.message}")
+    false
+}
