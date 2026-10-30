@@ -8,7 +8,8 @@ import java.nio.file.Paths
 
 /**
  * Post-install patches of the staged Ruby + Metasploit tree (see [RubyExtractor]):
- * extension symlinks, nokogiri `<major.minor>/` link, vendor json over stdlib,
+ * extension symlinks, nokogiri `<major.minor>/` link, vendor json over stdlib
+ * (older non load-relative Ruby only),
  * `msfrpcd` wrapper.
  */
 internal object MsfBundlePatches {
@@ -37,8 +38,11 @@ internal object MsfBundlePatches {
             }
         }
 
-        // Vendor json gem overrides the stdlib one
-        gems.newestWithPrefix("json-")?.let { jsonGem ->
+        // Older bundles (absolute load paths, run with RUBYLIB): the stdlib json
+        // dir comes first, so overlay it with the vendor gem's .rb files.
+        // Load-relative Ruby needs no RUBYLIB, gems win and this would break
+        // plain `require "json"` (vendor .rb over the stdlib's static parser).
+        if (!RubyExtractor.isLoadRelative(rubyDir)) gems.newestWithPrefix("json-")?.let { jsonGem ->
             val vendorJsonLib = File(jsonGem, "lib/json")
             val stdlibJsonDir = File(rubyDir, "lib/ruby/$rubyApiVersion/json")
             if (vendorJsonLib.exists() && stdlibJsonDir.exists()) {

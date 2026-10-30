@@ -25,6 +25,10 @@ smoke_msf() {
   [ "$v" = "$MSF_REF" ] && pass "MSF VERSION $v" || fail "MSF VERSION is '$v', expected $MSF_REF"
   v=$(cat "$rb/VERSION" 2>/dev/null || true)
   [ "$v" = "$RUBY_VERSION" ] && pass "Ruby VERSION $v" || fail "Ruby VERSION is '$v', expected $RUBY_VERSION"
+  # The app runs Ruby from its filesDir without RUBYLIB: load paths must be relative.
+  grep -qsF 'CONFIG["LIBRUBY_RELATIVE"] = "yes"' "$rb"/lib/ruby/*/*/rbconfig.rb \
+    && pass "Ruby resolves load paths relative to its binary" \
+    || fail "Ruby not built with --enable-load-relative (rbconfig LIBRUBY_RELATIVE != yes)"
 
   local vroot ext
   vroot=$(find "$msf/vendor/bundle/ruby" -mindepth 1 -maxdepth 1 -type d -print -quit)

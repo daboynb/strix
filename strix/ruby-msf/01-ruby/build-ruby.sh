@@ -139,6 +139,7 @@ export PKG_CONFIG_PATH="${DEPS}/lib/pkgconfig"
     --host=${TARGET} \
     --target=${TARGET} \
     --prefix=${PREFIX} \
+    --enable-load-relative \
     --with-baseruby=${HOST_RUBY}/bin/ruby \
     --disable-install-doc \
     --disable-jit-support \
@@ -160,6 +161,17 @@ RUBY_BIN=/tmp/ruby-install${PREFIX}/bin/ruby
 [ -f "$RUBY_BIN" ] || { echo "FAIL: ${RUBY_BIN} not installed"; exit 1; }
 file "$RUBY_BIN" | grep -q "aarch64" || { echo "FAIL: not aarch64: $(file "$RUBY_BIN")"; exit 1; }
 echo "PASS: $(file "$RUBY_BIN" | cut -d: -f2)"
+
+# Load paths resolved from the binary's location at run time: the app installs
+# Ruby under its own filesDir, not ${PREFIX}, and without this needs RUBYLIB,
+# which puts the stdlib ahead of the bundled gems (stdlib json 2.7 shadowing
+# the json gem Metasploit's Gemfile.lock pins).
+RBCONFIG=$(find /tmp/ruby-install${PREFIX}/lib/ruby -name rbconfig.rb | head -1)
+grep -q 'CONFIG\["LIBRUBY_RELATIVE"\] = "yes"' "$RBCONFIG" \
+    || { echo "FAIL: ruby not built with load-relative paths ($RBCONFIG)"; exit 1; }
+grep -rq '^#define LOAD_RELATIVE 1' .ext/include \
+    || { echo "FAIL: LOAD_RELATIVE not defined in .ext/include/*/ruby/config.h (dladdr missing?)"; exit 1; }
+echo "PASS: load-relative"
 
 # ============================================================
 # FASE 4: Verifica ext critiche
