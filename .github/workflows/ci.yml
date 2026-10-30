@@ -3,11 +3,18 @@
 # workflow; update-bundles.yml runs the bundle builds + smoke checks itself.
 name: CI
 
+# Documentation-only changes (README, its images) build nothing: skipped.
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - README.md
+      - strix/docs/**
   push:
     branches: [main]
+    paths-ignore:
+      - README.md
+      - strix/docs/**
 
 permissions:
   contents: read
