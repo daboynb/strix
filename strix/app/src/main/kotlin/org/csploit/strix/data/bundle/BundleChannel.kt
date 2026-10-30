@@ -43,11 +43,12 @@ class BundleChannel(
         val installed = hooks.installedManifest()
         val available = BundleManifest.parseOrNull(settings.availableManifest(id))
             ?.takeIf { BundleVersions.isNewer(it, installed) }
+        val (installedLabel, availableLabel) = versionLabels(hooks.installedLabel(), installed, available)
         _state.update {
             it.copy(
-                installedVersion = hooks.installedLabel(),
+                installedVersion = installedLabel,
                 source = hooks.source(),
-                availableVersion = available?.version,
+                availableVersion = availableLabel,
                 downloadSize = available?.size ?: it.downloadSize,
                 lastCheckMs = settings.bundleLastCheckMs,
             )
@@ -105,11 +106,12 @@ class BundleChannel(
         val newer = candidate?.manifest?.takeIf { BundleVersions.isNewer(it, installed) }
         settings.setAvailableManifest(id, newer?.let { candidate.manifestJson })
         Logger.info("BundleChannel[$id]: latest=${candidate?.manifest?.version} installed=${installed?.version}")
+        val (installedLabel, availableLabel) = versionLabels(hooks.installedLabel(), installed, newer)
         _state.update {
             it.copy(
-                installedVersion = hooks.installedLabel(),
+                installedVersion = installedLabel,
                 source = hooks.source(),
-                availableVersion = newer?.version,
+                availableVersion = availableLabel,
                 downloadSize = candidate?.manifest?.size ?: it.downloadSize,
                 lastCheckMs = settings.bundleLastCheckMs,
                 op = if (it.op is BundleOp.Checking) BundleOp.Idle else it.op,
