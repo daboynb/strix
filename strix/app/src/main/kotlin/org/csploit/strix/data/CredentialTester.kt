@@ -43,7 +43,7 @@ class CredentialTester @Inject constructor(
         val statusRegex = Regex("""\[STATUS]\s*(.+)""")
 
         processManager.execute(
-            command = "hydra -L ${shellQuote(usersFile.absolutePath)} -P ${shellQuote(passwordsFile.absolutePath)} " +
+            command = "hydra -I -L ${shellQuote(usersFile.absolutePath)} -P ${shellQuote(passwordsFile.absolutePath)} " +
                 "-f -t 4 -s $port ${shellQuote(ip)} $module /",
             toolsDir = toolManager.toolsPath,
             workDir = toolManager.corePath,

@@ -66,7 +66,9 @@ class MsfViewModel @Inject constructor(
         viewModelScope.launch {
             msfDaemon.state.collect { state ->
                 when (state) {
-                    DaemonState.READY -> if (rpcClient.isAuthenticated && !_uiState.value.isConnected) {
+                    // init may already have set isConnected (daemon started by
+                    // another screen): the version is what is still missing.
+                    DaemonState.READY -> if (rpcClient.isAuthenticated && _uiState.value.msfVersion == null) {
                         onDaemonConnected()
                     }
                     DaemonState.STOPPED, DaemonState.FAILED -> _uiState.update {

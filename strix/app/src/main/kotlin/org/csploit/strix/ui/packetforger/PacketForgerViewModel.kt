@@ -68,7 +68,9 @@ class PacketForgerViewModel @Inject constructor(
             }
             _uiState.value = _uiState.value.copy(
                 isSending = false,
-                response = result.response,
+                // Without waiting there is no response: confirm the send instead.
+                response = result.response
+                    ?: if (result.success) "Packet sent (${data.size} bytes, ${state.protocol.name})" else null,
                 error = result.error,
             )
         }
