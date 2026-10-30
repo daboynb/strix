@@ -24,6 +24,15 @@ class NetworkManager @Inject constructor(
 
     fun isWifiConnected(): Boolean = findWifiNetwork() != null
 
+    /** IPv4 DNS servers of the Wi-Fi network (Android has no /etc/resolv.conf for nmap). */
+    fun wifiDnsServers(): List<String> {
+        val network = findWifiNetwork() ?: return emptyList()
+        return connectivityManager.getLinkProperties(network)?.dnsServers
+            ?.filterIsInstance<Inet4Address>()
+            ?.mapNotNull { it.hostAddress }
+            .orEmpty()
+    }
+
     /**
      * The physical Wi-Fi network. With a VPN up, activeNetwork is the VPN and
      * its caps may also report TRANSPORT_WIFI (underlying transport), so its

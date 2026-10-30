@@ -11,11 +11,16 @@ internal const val PID_MARKER = "__STRIX_PID__"
  */
 fun shellQuote(s: String): String = "'" + s.replace("'", "'\\''") + "'"
 
-/** Replace every non-blank secret in [text] with "***" (longest first, so overlapping secrets don't leak). */
+/**
+ * Replace every non-blank secret in [text] that is a whole shell word (delimited
+ * by whitespace or the ends of [text]) with "***", longest first so overlapping
+ * secrets don't leak. Whole words only: a short password such as "msf" must not
+ * mangle paths like `.../msf/msfrpcd` in the same command line.
+ */
 internal fun redactSecrets(text: String, secrets: Collection<String>): String =
     secrets.filter { it.isNotBlank() }
         .sortedByDescending { it.length }
-        .fold(text) { acc, secret -> acc.replace(secret, "***") }
+        .fold(text) { acc, secret -> Regex("(?<!\\S)" + Regex.escape(secret) + "(?!\\S)").replace(acc, "***") }
 
 internal fun buildShellCommand(
     command: String,

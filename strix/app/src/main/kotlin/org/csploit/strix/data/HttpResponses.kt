@@ -10,6 +10,9 @@ internal object HttpResponses {
     private const val MAX_RESPONSE = 8192
     private val TITLE_END = Regex("</title>", RegexOption.IGNORE_CASE)
     private val CONTENT_LENGTH = Regex("(?im)^Content-Length:\\s*(\\d+)")
+    // Titles may span lines; entities and runs of whitespace are normalised.
+    private val TITLE = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    private val WHITESPACE = Regex("\\s+")
 
     /**
      * Reads the status line, headers and at most [MAX_RESPONSE] bytes total.
@@ -56,8 +59,9 @@ internal object HttpResponses {
             .find(headers)?.groupValues?.get(1)?.trim()
         val wwwAuth = Regex("WWW-Authenticate:\\s*(.+)", RegexOption.IGNORE_CASE)
             .find(headers)?.groupValues?.get(1)?.trim()
-        val title = Regex("<title[^>]*>(.*?)</title>", RegexOption.IGNORE_CASE)
-            .find(body)?.groupValues?.get(1)?.trim()?.ifBlank { null }
+        val title = TITLE.find(body)?.groupValues?.get(1)
+            ?.let { HtmlEntities.decode(it).replace(WHITESPACE, " ").trim() }
+            ?.ifBlank { null }
 
         val scheme = if (useSsl) "https" else "http"
         Logger.info("HttpProbe: $scheme://$ip:$port => status=$statusCode server=$server title=$title")

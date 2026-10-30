@@ -1,6 +1,5 @@
 package org.csploit.strix.ui.settings
 
-import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,7 +54,7 @@ fun BundlesSection(
         }
         Text(
             if (tools.lastCheckMs > 0) {
-                "Last checked " + DateUtils.getRelativeTimeSpanString(tools.lastCheckMs)
+                "Last checked " + relativeTime(tools.lastCheckMs, System.currentTimeMillis())
             } else {
                 "Never checked (automatic check runs at most once a day)"
             },

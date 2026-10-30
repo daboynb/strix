@@ -97,6 +97,18 @@ class ProcessManagerSafetyTest {
         assertEquals("abc", redactSecrets("abc", listOf("", " ")))
         // Longest first: a secret containing a shorter one is fully hidden.
         assertEquals("x *** y", redactSecrets("x passw0rd y", listOf("pass", "passw0rd")))
+        // Whole shell words only: a short password doesn't mangle paths (a user
+        // name equal to the password is a whole word too, so it is hidden as well).
+        assertEquals(
+            "/files/msf/msfrpcd -U *** -P ***",
+            redactSecrets("/files/msf/msfrpcd -U msf -P msf", listOf("'msf'", "msf")),
+        )
+        assertEquals(
+            "/files/msf/msfrpcd -U 'admin' -P ***",
+            redactSecrets("/files/msf/msfrpcd -U 'admin' -P 'msf'", listOf("'msf'", "msf")),
+        )
+        // Quoted form with spaces / metacharacters.
+        assertEquals("-P *** -S", redactSecrets("-P 'a b'\\''c' -S", listOf(shellQuote("a b'c"), "a b'c")))
     }
 
     /** shellQuote must round-trip arbitrary text as exactly one shell word. */

@@ -24,6 +24,7 @@ class NetworkScanner @Inject constructor(
     private val processManager: ProcessManager,
     private val toolManager: ToolManager,
     private val appSettings: AppSettings,
+    private val nmapDns: NmapDns,
 ) {
     companion object {
         // "Nmap scan report for hostname (192.168.1.x)" or "Nmap scan report for 192.168.1.x"
@@ -56,7 +57,7 @@ class NetworkScanner @Inject constructor(
         }
 
         processManager.execute(
-            command = "nmap -sn -PR -T${appSettings.nmapTiming} --stats-every 10s ${shellQuote(subnet)}",
+            command = "nmap -sn -PR -T${appSettings.nmapTiming} --stats-every 10s${nmapDns.arg()} ${shellQuote(subnet)}",
             toolsDir = toolManager.toolsPath,
             workDir = toolManager.corePath,
         ).catch { e ->
