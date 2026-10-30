@@ -9,6 +9,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import androidx.navigation.navOptions
 import kotlinx.coroutines.flow.StateFlow
+import org.csploit.strix.domain.model.Host
 import org.csploit.strix.ui.hostdetail.HostDetailScreen
 import org.csploit.strix.ui.hostlist.HostListScreen
 import org.csploit.strix.ui.splash.SplashScreen
@@ -48,7 +49,8 @@ internal fun NavGraphBuilder.startDestinations(
     ) {
         HostListScreen(
             onHostClick = { host, _ ->
-                navController.navigate(Routes.hostDetail(host.ip, host.mac, host.name))
+                // A manual host nobody discovered yet has no MAC, only the placeholder.
+                navController.navigate(Routes.hostDetail(host.ip, host.mac.takeIf { it != Host.MANUAL_MAC }, host.name))
             },
             onWifiKeygen = {
                 navController.navigate(Routes.WIFI_KEYGEN)

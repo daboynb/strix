@@ -90,7 +90,7 @@ class HostListViewModel @Inject constructor(
             // and are cancelled together with the scan.
             val resolvedIps = mutableSetOf<String>()
             val pendingDisconnects = mutableMapOf<String, Job>()
-            networkScanner.scan("${info.gatewayIp}/${info.prefixLength}").collect { event ->
+            networkScanner.scan("${info.gatewayIp}/${info.prefixLength}", info.interfaceName).collect { event ->
                 when (event) {
                     is ScanEvent.HostFound -> {
                         pendingDisconnects.remove(event.ip)?.cancel()
@@ -130,21 +130,21 @@ class HostListViewModel @Inject constructor(
         if (trimmed.isEmpty()) return
         // If the input looks like an IPv4, store it directly.
         if (IPV4_REGEX.matches(trimmed)) {
-            targetRepository.addOrUpdate(trimmed, "manual", name)
+            targetRepository.addManual(trimmed, name)
             return
         }
         // Otherwise treat it as a hostname: resolve to an IP so downstream
         // tools (nmap, etc.) don't need /etc/resolv.conf at run time.
         // Temporarily store the hostname as the id; once resolved we upsert
         // the entry under the real IP and drop the hostname-keyed one.
-        targetRepository.addOrUpdate(trimmed, "manual", name ?: trimmed)
+        targetRepository.addManual(trimmed, name ?: trimmed)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val addr = InetAddress.getByName(trimmed)
                 val resolvedIp = addr.hostAddress ?: return@launch
                 if (resolvedIp != trimmed) {
                     targetRepository.remove(trimmed)
-                    targetRepository.addOrUpdate(resolvedIp, "manual", name ?: trimmed)
+                    targetRepository.addManual(resolvedIp, name ?: trimmed)
                 }
             } catch (_: Exception) {}
         }

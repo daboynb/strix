@@ -71,6 +71,7 @@ class PortScanner @Inject constructor(
             PortScanSession(ip = ip, isScanning = true, ports = emptyList(), os = null, progress = null, error = null)
         }
 
+        val portTable = NmapPortTable()
         try {
             processManager.execute(
                 command = NmapCli.buildCommand(ip, portRange, appSettings, nmapDns.arg()),
@@ -81,7 +82,7 @@ class PortScanner @Inject constructor(
                     is ProcessEvent.StdoutLine -> {
                         val line = event.line
 
-                        NmapCli.parsePort(line)?.let { port ->
+                        portTable.parse(line)?.let { port ->
                             updateSession(ip) { it.copy(ports = it.ports + port) }
                         }
 

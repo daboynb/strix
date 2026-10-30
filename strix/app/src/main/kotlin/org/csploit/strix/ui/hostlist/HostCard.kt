@@ -33,7 +33,7 @@ internal fun HostCard(
     isSelf: Boolean,
     onClick: () -> Unit = {},
 ) {
-    val isManual = host.mac == "manual"
+    val isManual = host.manual
     val icon: ImageVector
     val label: String
 
@@ -102,7 +102,7 @@ internal fun HostCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = contentColor.copy(alpha = alpha),
                 )
-                if (!isManual) {
+                if (host.mac != Host.MANUAL_MAC) {
                     Text(
                         text = host.mac,
                         style = MaterialTheme.typography.bodySmall,
