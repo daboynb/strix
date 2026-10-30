@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#052e3a"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <radialGradient id="eye" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fef08a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- radar rings -->
+  <g fill="none" stroke="#22d3ee" stroke-opacity="0.13" stroke-width="6">
+    <circle cx="256" cy="276" r="200"/>
+    <circle cx="256" cy="276" r="150"/>
+  </g>
+
+  <!-- body with ear tufts -->
+  <path fill="url(#body)" d="
+    M136 108 L196 170 Q256 150 316 170 L376 108
+    Q396 200 392 270 Q386 380 256 424 Q126 380 120 270 Q116 200 136 108 Z"/>
+
+  <!-- facial disc -->
+  <path fill="#0f172a" opacity="0.92" d="
+    M256 206 Q300 176 344 196 Q386 220 380 270 Q372 318 320 326 Q282 330 256 300
+    Q230 330 192 326 Q140 318 132 270 Q126 220 168 196 Q212 176 256 206 Z"/>
+
+  <!-- eyes: scanner rings -->
+  <g>
+    <circle cx="196" cy="262" r="48" fill="url(#eye)"/>
+    <circle cx="316" cy="262" r="48" fill="url(#eye)"/>
+    <circle cx="196" cy="262" r="30" fill="none" stroke="#0f172a" stroke-width="6"/>
+    <circle cx="316" cy="262" r="30" fill="none" stroke="#0f172a" stroke-width="6"/>
+    <circle cx="196" cy="262" r="14" fill="#0f172a"/>
+    <circle cx="316" cy="262" r="14" fill="#0f172a"/>
+    <circle cx="190" cy="255" r="5" fill="#ffffff"/>
+    <circle cx="310" cy="255" r="5" fill="#ffffff"/>
+  </g>
+
+  <!-- beak -->
+  <path fill="#f59e0b" d="M256 296 L238 322 L256 352 L274 322 Z"/>
+
+  <!-- chest: network nodes -->
+  <g stroke="#0f172a" stroke-opacity="0.55" stroke-width="5" fill="none">
+    <path d="M206 382 L256 360 L306 382 M256 360 L256 404"/>
+  </g>
+  <g fill="#0f172a" fill-opacity="0.7">
+    <circle cx="206" cy="382" r="9"/>
+    <circle cx="306" cy="382" r="9"/>
+    <circle cx="256" cy="360" r="9"/>
+    <circle cx="256" cy="404" r="9"/>
+  </g>
+</svg>
