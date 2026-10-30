@@ -36,6 +36,13 @@ export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
   ac_cv_linux_vers=4 \
   2>&1
 
+# libdnet must use PF_PACKET sockets (eth-linux.c): with the eth-none fallback
+# nmap cannot send Ethernet frames, so it never does ARP host discovery and
+# reports bogus MAC addresses (bytes of the IP header) for every host.
+grep -q '^#define HAVE_LINUX_PF_PACKET 1' libdnet-stripped/include/config.h \
+  || { echo "ERROR: libdnet configured without Linux PF_PACKET support (eth-linux)"; exit 1; }
+echo "  libdnet uses eth-linux (PF_PACKET)"
+
 # Disable shared lib for bundled libpcap (TLS relocation errors with NDK)
 if [ -f libpcap/Makefile ]; then
   sed -i 's/^build-shared:.*$/build-shared:/' libpcap/Makefile
