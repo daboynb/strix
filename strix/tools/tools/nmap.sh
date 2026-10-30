@@ -15,10 +15,12 @@ if [ -f libdnet-stripped/src/route-linux.c ]; then
   echo "  Patched libdnet route-linux.c for Android NDK"
 fi
 
-# Point to our cross-compiled OpenSSL. libpcap also comes from the sysroot
-# (libs/libpcap.sh, the one tcpdump uses): with nmap's included copy, its
-# sources would compile against the sysroot pcap headers found first on the
-# include path (e.g. DLT_DEBUG_ONLY missing with nmap 7.993's libpcap 1.10.7).
+# Point to our cross-compiled OpenSSL. libpcap and pcre2 also come from the
+# sysroot (libs/libpcap.sh, libs/pcre2.sh: signature-verified, static):
+# - nmap's included libpcap compiled against the sysroot pcap headers found
+#   first on the include path (DLT_DEBUG_ONLY missing with 7.993's 1.10.7);
+# - nmap's included pcre2 (JIT sources stripped by nmap) fails to link its
+#   shared library with ld.lld: the 10.47 version script lists pcre2_jit_*.
 export CFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export CXXFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
@@ -29,7 +31,7 @@ export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
   --with-libssh2=${SYSROOT} \
   --with-libpcap=${SYSROOT} \
   --with-libdnet=included \
-  --with-libpcre=included \
+  --with-libpcre=${SYSROOT} \
   --with-liblua=included \
   --without-zenmap \
   --without-ndiff \
@@ -46,9 +48,11 @@ grep -q '^#define HAVE_LINUX_PF_PACKET 1' libdnet-stripped/include/config.h \
   || { echo "ERROR: libdnet configured without Linux PF_PACKET support (eth-linux)"; exit 1; }
 echo "  libdnet uses eth-linux (PF_PACKET)"
 
-# Must link our libpcap: the included copy is configured only as a fallback
-[ ! -f libpcap/Makefile ] \
-  || { echo "ERROR: nmap fell back to its included libpcap (sysroot libpcap not usable)"; exit 1; }
+# Must link our libpcap/pcre2: the included copies are configured only as a fallback
+for lib in libpcap libpcre; do
+  [ ! -f "$lib/Makefile" ] \
+    || { echo "ERROR: nmap fell back to its included $lib (sysroot copy not usable)"; exit 1; }
+done
 
 make -j$(nproc) 2>&1
 
