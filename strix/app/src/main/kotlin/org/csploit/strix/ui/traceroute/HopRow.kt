@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.csploit.strix.domain.model.TracerouteHop
+import java.util.Locale
 
 @Composable
 internal fun HopRow(hop: TracerouteHop) {
@@ -28,7 +29,7 @@ internal fun HopRow(hop: TracerouteHop) {
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
-            hop.rttMs?.let { "%.1f ms".format(it) } ?: "*",
+            hop.rttMs?.let { String.format(Locale.ROOT, "%.1f ms", it) } ?: "*",
             modifier = Modifier.width(80.dp),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodyMedium,

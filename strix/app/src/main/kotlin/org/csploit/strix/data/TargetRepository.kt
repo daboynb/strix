@@ -18,6 +18,7 @@ class TargetRepository @Inject constructor() {
     private val _hosts = MutableStateFlow<List<Host>>(emptyList())
     val hosts: StateFlow<List<Host>> = _hosts.asStateFlow()
 
+    /** A host found by discovery: its MAC wins, a manual host stays manual. */
     fun addOrUpdate(ip: String, mac: String, name: String?) {
         _hosts.update { hosts ->
             val current = hosts.toMutableList()
@@ -38,6 +39,25 @@ class TargetRepository @Inject constructor() {
         }
     }
 
+    /** A host added by the user: keeps a discovered MAC, survives [clear]. */
+    fun addManual(ip: String, name: String?) {
+        _hosts.update { hosts ->
+            val index = hosts.indexOfFirst { it.ip == ip }
+            if (index >= 0) {
+                val existing = hosts[index]
+                hosts.toMutableList().apply {
+                    this[index] = existing.copy(
+                        name = if (!name.isNullOrBlank()) name else existing.name,
+                        connected = true,
+                        manual = true,
+                    )
+                }
+            } else {
+                hosts + Host(ip = ip, mac = Host.MANUAL_MAC, name = name, connected = true, manual = true)
+            }
+        }
+    }
+
     fun updateName(ip: String, name: String) {
         _hosts.update { hosts ->
             hosts.map { if (it.ip == ip) it.copy(name = name) else it }
@@ -52,7 +72,7 @@ class TargetRepository @Inject constructor() {
 
     fun clear() {
         // Preserve manually added hosts across scans
-        _hosts.update { hosts -> hosts.filter { it.mac == "manual" } }
+        _hosts.update { hosts -> hosts.filter { it.manual } }
     }
 
     fun remove(ip: String) {

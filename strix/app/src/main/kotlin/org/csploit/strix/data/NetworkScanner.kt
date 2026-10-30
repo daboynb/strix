@@ -3,6 +3,7 @@ package org.csploit.strix.data
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import org.csploit.strix.core.Logger
 import org.csploit.strix.core.ProcessEvent
 import org.csploit.strix.core.ProcessManager
@@ -41,17 +42,18 @@ class NetworkScanner @Inject constructor(
      * Always terminates with [ScanEvent.ScanEnded], also when nmap can't be
      * started or the process flow fails (reported as [ScanEvent.ScanError] first).
      */
-    fun scan(subnet: String): Flow<ScanEvent> = flow {
+    fun scan(subnet: String, interfaceName: String): Flow<ScanEvent> = flow {
+        val ownMac = localMac(interfaceName)
         var pendingIp: String? = null
         var pendingName: String? = null
         var ended = false
         var failure: Throwable? = null
 
         // A report line without a MAC line is the local host (nmap doesn't
-        // show a MAC for its own IP): emit it with a placeholder MAC.
+        // show a MAC for its own IP): emit it with the interface's MAC.
         suspend fun flushPending() {
             val ip = pendingIp ?: return
-            emit(ScanEvent.HostFound("00:00:00:00:00:00", ip, pendingName))
+            emit(ScanEvent.HostFound(ownMac, ip, pendingName))
             pendingIp = null
             pendingName = null
         }
@@ -107,5 +109,19 @@ class NetworkScanner @Inject constructor(
             emit(ScanEvent.ScanError("nmap scan failed: ${failure?.message ?: "no exit status"}"))
             emit(ScanEvent.ScanEnded)
         }
+    }
+
+    /**
+     * MAC of [iface] as seen on the LAN (the per-network randomized one, if
+     * enabled). Apps can't read it since Android 11, root can; placeholder
+     * "00:00:00:00:00:00" if unavailable.
+     */
+    private suspend fun localMac(iface: String): String {
+        val out = processManager.execute(command = "cat ${shellQuote("/sys/class/net/$iface/address")}")
+            .catch { e -> Logger.warning("cannot read MAC of $iface: ${e.message}") }
+            .toList()
+        val hex = out.firstNotNullOfOrNull { (it as? ProcessEvent.StdoutLine)?.line }
+            ?.let { OuiLookup.normalizeMac(it) }
+        return hex?.chunked(2)?.joinToString(":") ?: "00:00:00:00:00:00"
     }
 }

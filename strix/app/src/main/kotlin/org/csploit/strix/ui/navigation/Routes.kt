@@ -36,7 +36,7 @@ object Routes {
         return if (query.isEmpty()) base else "$base?$query"
     }
 
-    fun hostDetail(ip: String, mac: String, name: String?) =
+    fun hostDetail(ip: String, mac: String?, name: String?) =
         withQuery("host_detail/${seg(ip)}", "mac" to mac, "name" to name)
 
     fun portScanner(ip: String) = "port_scanner/${seg(ip)}"
