@@ -26,6 +26,22 @@ class RubyExtractor @Inject constructor() {
                 ?.filter { it.isDirectory && it.name.matches(RUBY_API_DIR) }
                 ?.maxWithOrNull { a, b -> BundleVersions.compareVersions(a.name, b.name) }
                 ?.name
+
+        /**
+         * True if the Ruby in [rubyDir] was built with --enable-load-relative: it
+         * finds its stdlib from the binary's location, so it must run without
+         * RUBYLIB (which would put the stdlib ahead of the bundled gems). Older
+         * bundles have absolute load paths and need RUBYLIB + the json patch.
+         */
+        fun isLoadRelative(rubyDir: File): Boolean {
+            val api = detectRubyApiVersion(rubyDir) ?: return false
+            return File(rubyDir, "lib/ruby/$api").listFiles()
+                ?.filter { it.isDirectory && it.name.startsWith("aarch64") }
+                ?.any { File(it, "rbconfig.rb").takeIf(File::isFile)?.readText()?.contains(LOAD_RELATIVE_MARK) == true }
+                ?: false
+        }
+
+        private const val LOAD_RELATIVE_MARK = "CONFIG[\"LIBRUBY_RELATIVE\"] = \"yes\""
     }
 
     val spec = BundleSpec(

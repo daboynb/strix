@@ -31,11 +31,17 @@ internal fun buildMsfrpcdLaunch(toolManager: ToolManager, appSettings: AppSettin
     // substring of the command line.
     val secrets = if (pass.isEmpty()) emptyList() else listOf(shellQuote(pass), pass)
 
-    val env = mapOf(
+    // Load-relative Ruby finds its stdlib itself; RUBYLIB would shadow the
+    // bundled gems (e.g. the json gem) with the stdlib copies.
+    val rubyLib = if (RubyExtractor.isLoadRelative(File(rubyPath))) {
+        emptyMap()
+    } else {
+        mapOf("RUBYLIB" to "$rubyPath/lib/ruby/$rubyApiVersion:${detectArchDir(rubyPath, rubyApiVersion)}")
+    }
+    val env = rubyLib + mapOf(
         "HOME" to homePath,
         "PATH" to "$rubyPath/bin:$msfPath:/system/bin:/system/xbin",
         "LD_LIBRARY_PATH" to "$rubyPath/lib",
-        "RUBYLIB" to "$rubyPath/lib/ruby/$rubyApiVersion:${detectArchDir(rubyPath, rubyApiVersion)}",
         "GEM_HOME" to "$msfPath/vendor/bundle/ruby/$rubyApiVersion",
         "GEM_PATH" to "$msfPath/vendor/bundle/ruby/$rubyApiVersion:$rubyPath/lib/ruby/gems/$rubyApiVersion",
         "OPENSSL_CONF" to "$rubyPath/ssl/openssl.cnf",
