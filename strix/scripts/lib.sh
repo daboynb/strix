@@ -31,18 +31,28 @@ versions_build_args() {
 # docker buildx build of target "export" whose filesystem lands in $2.
 #   bundle_docker_build <context-dir> <output-dir> <log-file>
 # Extra buildx flags (e.g. gha cache) can be passed via STRIX_BUILDX_ARGS.
+#
+# Exported as one tar stream, then extracted: the local exporter sends every
+# file over its own gRPC stream and can deadlock forever on large trees
+# (moby/buildkit#2950; the msf output is ~32k files and hung CI twice at
+# "exporting to client directory / copying files").
 bundle_docker_build() {
   local context=$1 out=$2 log=$3
   local -a args extra
+  local tmp
   versions_build_args args
   read -r -a extra <<< "${STRIX_BUILDX_ARGS:-}"
+  tmp=$(mktemp -d)
   docker buildx build \
     --progress=plain \
     --build-context "strix-scripts=${STRIX_DIR}/scripts" \
     --target export \
-    --output "type=local,dest=${out}" \
+    --output "type=tar,dest=${tmp}/export.tar" \
     "${args[@]}" "${extra[@]}" \
-    "$context" 2>&1 | tee "$log"
+    "$context" 2>&1 | tee "$log" || { rm -rf "$tmp"; return 1; }
+  mkdir -p "$out"
+  tar -xf "${tmp}/export.tar" -C "$out" || { rm -rf "$tmp"; die "cannot extract the build output into $out"; }
+  rm -rf "$tmp"
 }
 
 # Remove a previous build output directory (fail loudly if we can't).
