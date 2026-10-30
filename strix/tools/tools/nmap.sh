@@ -15,7 +15,10 @@ if [ -f libdnet-stripped/src/route-linux.c ]; then
   echo "  Patched libdnet route-linux.c for Android NDK"
 fi
 
-# Point to our cross-compiled OpenSSL
+# Point to our cross-compiled OpenSSL. libpcap also comes from the sysroot
+# (libs/libpcap.sh, the one tcpdump uses): with nmap's included copy, its
+# sources would compile against the sysroot pcap headers found first on the
+# include path (e.g. DLT_DEBUG_ONLY missing with nmap 7.993's libpcap 1.10.7).
 export CFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export CXXFLAGS="-fPIC -O2 -I${SYSROOT}/include"
 export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
@@ -24,7 +27,7 @@ export LDFLAGS="-fPIE -pie -static-libstdc++ -L${SYSROOT}/lib"
   --host=${TARGET} \
   --with-openssl=${SYSROOT} \
   --with-libssh2=${SYSROOT} \
-  --with-libpcap=included \
+  --with-libpcap=${SYSROOT} \
   --with-libdnet=included \
   --with-libpcre=included \
   --with-liblua=included \
@@ -43,11 +46,9 @@ grep -q '^#define HAVE_LINUX_PF_PACKET 1' libdnet-stripped/include/config.h \
   || { echo "ERROR: libdnet configured without Linux PF_PACKET support (eth-linux)"; exit 1; }
 echo "  libdnet uses eth-linux (PF_PACKET)"
 
-# Disable shared lib for bundled libpcap (TLS relocation errors with NDK)
-if [ -f libpcap/Makefile ]; then
-  sed -i 's/^build-shared:.*$/build-shared:/' libpcap/Makefile
-  echo "  Disabled libpcap shared lib build"
-fi
+# Must link our libpcap: the included copy is configured only as a fallback
+[ ! -f libpcap/Makefile ] \
+  || { echo "ERROR: nmap fell back to its included libpcap (sysroot libpcap not usable)"; exit 1; }
 
 make -j$(nproc) 2>&1
 
