@@ -110,7 +110,7 @@ private fun BundleOp.Downloading.fraction() = if (total > 0) (bytes.toFloat() / 
 private fun BundleOp.Installing.fraction() = if (total > 0) (bytes.toFloat() / total).coerceIn(0f, 1f) else 0f
 
 @Composable
-private fun BundleCard(container: Color, content: Color, body: @Composable () -> Unit) {
+internal fun BundleCard(container: Color, content: Color, body: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
         colors = CardDefaults.cardColors(containerColor = container, contentColor = content),

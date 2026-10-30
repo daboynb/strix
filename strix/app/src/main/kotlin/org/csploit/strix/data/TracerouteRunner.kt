@@ -24,6 +24,7 @@ data class TracerouteSession(
 class TracerouteRunner @Inject constructor(
     private val processManager: ProcessManager,
     private val toolManager: ToolManager,
+    private val nmapDns: NmapDns,
 ) {
     private val _sessions = MutableStateFlow<Map<String, TracerouteSession>>(emptyMap())
     val sessions: StateFlow<Map<String, TracerouteSession>> = _sessions.asStateFlow()
@@ -39,7 +40,7 @@ class TracerouteRunner @Inject constructor(
         updateSession(ip) { TracerouteSession(ip = ip, isTracing = true) }
         try {
             processManager.execute(
-                command = "nmap --traceroute -Pn ${shellQuote(ip)}",
+                command = "nmap --traceroute -Pn${nmapDns.arg()} ${shellQuote(ip)}",
                 toolsDir = toolManager.toolsPath,
                 workDir = toolManager.corePath,
             ).collect { event ->

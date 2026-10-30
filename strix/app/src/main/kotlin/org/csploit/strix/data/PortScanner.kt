@@ -31,6 +31,7 @@ class PortScanner @Inject constructor(
     private val processManager: ProcessManager,
     private val toolManager: ToolManager,
     private val appSettings: AppSettings,
+    private val nmapDns: NmapDns,
 ) {
     companion object {
         private val PORT_SPEC_REGEX = Regex("""^[0-9,\-]+$""")
@@ -72,7 +73,7 @@ class PortScanner @Inject constructor(
 
         try {
             processManager.execute(
-                command = NmapCli.buildCommand(ip, portRange, appSettings),
+                command = NmapCli.buildCommand(ip, portRange, appSettings, nmapDns.arg()),
                 toolsDir = toolManager.toolsPath,
                 workDir = toolManager.corePath,
             ).collect { event ->

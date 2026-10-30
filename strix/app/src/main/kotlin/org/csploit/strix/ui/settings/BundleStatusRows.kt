@@ -10,12 +10,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.csploit.strix.data.bundle.BundleOp
 import org.csploit.strix.data.bundle.BundleState
 import org.csploit.strix.data.bundle.BundleVersions
+import org.csploit.strix.ui.bundles.BundleCard
 
 internal fun displayVersion(v: String?) = when (v) {
     null -> "Not installed"
@@ -42,15 +42,17 @@ internal fun MsfBundleNotice(msf: BundleState, onDismissMessages: () -> Unit) {
         }
     }
 
-    val error = (msf.op as? BundleOp.Error)?.message
-    (error ?: msf.message)?.let { text ->
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Metasploit: $text",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    // Same cards as the Tools channel (BundleUpdateCard).
+    (msf.op as? BundleOp.Error)?.let { op ->
+        BundleCard(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) {
+            Text("Metasploit update failed", style = MaterialTheme.typography.titleSmall)
+            Text(op.message, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onDismissMessages) { Text("OK") }
+        }
+    }
+    msf.message?.let { msg ->
+        BundleCard(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant) {
+            Text(msg, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = onDismissMessages) { Text("OK") }
         }
     }

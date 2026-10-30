@@ -12,8 +12,8 @@ internal object NmapCli {
     private val OS_REGEX = Regex("""OS details:\s*(.+)""")
     private val PROGRESS_REGEX = Regex("""(\d+\.\d+)% done""")
 
-    /** Throws [IllegalArgumentException] if the effective port range is invalid. */
-    fun buildCommand(ip: String, portRange: String?, appSettings: AppSettings): String {
+    /** [dnsArg] comes from [NmapDns.arg]. Throws [IllegalArgumentException] if the effective port range is invalid. */
+    fun buildCommand(ip: String, portRange: String?, appSettings: AppSettings, dnsArg: String): String {
         val range = portRange?.ifBlank { null } ?: appSettings.defaultPortRange.ifBlank { null }
         val portArg = if (range == null) {
             "--top-ports 1000"
@@ -21,14 +21,13 @@ internal object NmapCli {
             "-p " + shellQuote(PortScanner.normalizePortRange(range) ?: throw IllegalArgumentException("Invalid port range '$range'"))
         }
         val timing = appSettings.nmapTiming
-        val dnsArg = appSettings.dnsServer.ifBlank { null }?.let { "--dns-servers ${shellQuote(it.trim())}" } ?: ""
         // Custom args are whitespace-separated nmap options: each token is
         // passed as one quoted word so shell metacharacters stay literal.
         val extraArgs = appSettings.customNmapArgs.trim().split(Regex("""\s+"""))
             .filter { it.isNotEmpty() }
             .joinToString(" ") { shellQuote(it) }
 
-        return "nmap -sS -sV -O $portArg -T$timing -Pn $dnsArg $extraArgs ${shellQuote(ip)}"
+        return "nmap -sS -sV -O $portArg -T$timing -Pn$dnsArg $extraArgs ${shellQuote(ip)}"
     }
 
     fun parsePort(line: String): PortInfo? =

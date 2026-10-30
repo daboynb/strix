@@ -42,7 +42,7 @@ internal fun ScanSettingsSections(uiState: SettingsUiState, viewModel: SettingsV
         value = uiState.dnsServer,
         onValueChange = { viewModel.setDnsServer(it) },
         label = { Text("DNS server") },
-        placeholder = { Text("system default (leave empty)") },
+        placeholder = { Text("Wi-Fi DNS (leave empty)") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
