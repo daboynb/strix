@@ -1,3 +1,7 @@
+If you wanna help me
+
+<a href="https://www.buymeacoffee.com/daboynb" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
+
 <div align="center">
 
 <img src="strix/docs/logo.svg" alt="Strix logo" width="140">
@@ -185,9 +189,6 @@ Strix is the result of months of work. If it is useful to you:
 
 - **Leave a star** on GitHub: it really helps other people find the project.
 - **Report bugs** and share ideas in the [issues](https://github.com/daboynb/strix/issues).
-- **Buy me a coffee:**
-
-<a href="https://www.buymeacoffee.com/daboynb" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 ## License
 
