@@ -102,7 +102,7 @@ You don't need to install anything else. **Nmap, Hydra, Ettercap, tcpdump and ar
 
 ### 2. Install
 
-1. Download `app-release.apk` from the [latest release](https://github.com/daboynb/strix/releases/latest).
+1. Download the `.apk` file (for example `strix-v0.2.0.apk`) from the [latest release](https://github.com/daboynb/strix/releases/latest).
 2. Open it on the phone and allow installing apps from this source when Android asks.
 3. Start Strix and **grant root access** when your root manager asks.
 
