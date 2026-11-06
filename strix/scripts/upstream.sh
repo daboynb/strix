@@ -22,7 +22,6 @@ upstream_latest() {
     POSTGRESQL)   listing_latest https://ftp.postgresql.org/pub/source/ "v${POSTGRESQL_VERSION%%.*}\\.[0-9]+/" 'v' '/' ;;
     RUBY)         listing_latest "https://cache.ruby-lang.org/pub/ruby/${RUBY_VERSION%.*}/" "ruby-${RUBY_VERSION%.*}\\.[0-9]+\\.tar\\.gz" 'ruby-' '.tar.gz' ;;
     CURL)         gh_release curl/curl curl- | tr '_' '.' ;;
-    GEOIP)        gh_release maxmind/geoip-api-c v ;;
     LUA)          listing_latest https://www.lua.org/ftp/ 'lua-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' 'lua-' '.tar.gz' ;;
     LIBSSH2)      gh_release libssh2/libssh2 libssh2- ;;
     LIBSSH)       local d; d=$(listing_latest https://www.libssh.org/files/ 'href="[0-9]+\.[0-9]+/"' 'href="' '/"') &&
@@ -61,7 +60,6 @@ upstream_url() {
     POSTGRESQL)   echo "https://ftp.postgresql.org/pub/source/v${v}/postgresql-${v}.tar.bz2" ;;
     RUBY)         echo "https://cache.ruby-lang.org/pub/ruby/${v%.*}/ruby-${v}.tar.gz" ;;
     CURL)         echo "https://curl.se/download/curl-${v}.tar.gz" ;;
-    GEOIP)        echo "https://github.com/maxmind/geoip-api-c/releases/download/v${v}/GeoIP-${v}.tar.gz" ;;
     LUA)          echo "https://www.lua.org/ftp/lua-${v}.tar.gz" ;;
     LIBSSH2)      echo "https://github.com/libssh2/libssh2/releases/download/libssh2-${v}/libssh2-${v}.tar.gz" ;;
     LIBSSH)       echo "https://www.libssh.org/files/${v%.*}/libssh-${v}.tar.xz" ;;
