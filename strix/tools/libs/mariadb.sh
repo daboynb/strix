@@ -10,6 +10,10 @@ rm -rf build && mkdir -p build && cd build
 
 # Android NDK lacks 'ushort' typedef and treats -Werror flags strictly.
 # Disable -Werror and define ushort.
+# The remote_io client plugin (LOAD DATA LOCAL from a URL) links the static
+# libcurl, which pulls in unresolved OpenSSL symbols at the plugin's link step
+# (ld.lld: undefined symbol SSL_version, ...); we only need libmariadbclient.a
+# for hydra's mysql module, so disable that plugin and curl detection entirely.
 cmake .. \
   -DCMAKE_SYSTEM_NAME=Linux \
   -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
@@ -36,6 +40,8 @@ cmake .. \
   -DCLIENT_PLUGIN_AUTH_GSSAPI_CLIENT=OFF \
   -DCLIENT_PLUGIN_PVIO_NPIPE=OFF \
   -DCLIENT_PLUGIN_PVIO_SHMEM=OFF \
+  -DCLIENT_PLUGIN_REMOTE_IO=OFF \
+  -DWITH_CURL=OFF \
   2>&1
 
 make -j$(nproc) 2>&1
