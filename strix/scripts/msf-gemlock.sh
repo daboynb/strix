@@ -36,7 +36,11 @@ specs() { # <lock> <GEM|PATH>
 generate() {
   local in=$1 bundler=$2 out=$3 name ver sha
   [[ "$bundler" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad bundler version '$bundler'"
-  ! grep -qE '^(GIT|PLUGIN SOURCE)$' "$in" || die "$in has GIT/plugin sources (no checksums for those)"
+  # GIT/PATH gems carry no rubygems.org checksum: Bundler verifies a GIT gem by its
+  # pinned revision (full SHA in the lockfile) and a PATH gem by local source, so both
+  # appear in CHECKSUMS without a sha256 (like MSF's own metasploit-framework PATH gem).
+  # Only reject Bundler plugin sources, which we don't support.
+  ! grep -qE '^PLUGIN SOURCE$' "$in" || die "$in has a Bundler plugin source (unsupported)"
   [ "$(grep -A1 '^GEM$' "$in" | sed -n 's/^  remote: //p' | sort -u)" = "${RUBYGEMS}/" ] \
     || die "$in: every GEM source must be ${RUBYGEMS}/"
   specs "$in" GEM > "$TMPD/gems"
@@ -52,6 +56,7 @@ generate() {
       echo "  $name ($ver) sha256=$sha"
     done < "$TMPD/gems"
     specs "$in" PATH | while read -r name ver; do echo "  $name ($ver)"; done
+    specs "$in" GIT  | while read -r name ver; do echo "  $name ($ver)"; done
   } | LC_ALL=C sort > "$TMPD/checksums"
   # Bundler's section order: sources, PLATFORMS, DEPENDENCIES, CHECKSUMS, RUBY VERSION, BUNDLED WITH
   normalize "$in" | awk -v cs="$TMPD/checksums" -v bv="$bundler" '
