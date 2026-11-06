@@ -37,7 +37,6 @@ run "OpenSSL"       libs/openssl.sh
 run "librtmp"       libs/librtmp.sh
 run "libidn"        libs/libidn.sh
 run "curl"          libs/curl.sh
-run "GeoIP"         libs/geoip.sh
 run "Lua"           libs/lua.sh
 run "libssh2"       libs/libssh2.sh
 

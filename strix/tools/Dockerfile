@@ -58,8 +58,6 @@ ARG ETTERCAP_VERSION
 ARG ETTERCAP_SHA256
 ARG CURL_VERSION
 ARG CURL_SHA256
-ARG GEOIP_VERSION
-ARG GEOIP_SHA256
 ARG LUA_VERSION
 ARG LUA_SHA256
 ARG LIBSSH2_VERSION
@@ -99,7 +97,6 @@ RUN : "${API_LEVEL:?}" "${RTMPDUMP_COMMIT:?}" && \
     get "https://github.com/Ettercap/ettercap/archive/refs/tags/v${ETTERCAP_VERSION}.tar.gz" "${ETTERCAP_SHA256}" ettercap.tar.gz && \
     get "https://curl.se/download/curl-${CURL_VERSION}.tar.gz" "${CURL_SHA256}" curl.tar.gz \
         curl "https://curl.se/download/curl-${CURL_VERSION}.tar.gz.asc" && \
-    get "https://github.com/maxmind/geoip-api-c/releases/download/v${GEOIP_VERSION}/GeoIP-${GEOIP_VERSION}.tar.gz" "${GEOIP_SHA256}" geoip.tar.gz && \
     get "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" "${LUA_SHA256}" lua.tar.gz && \
     get "https://github.com/libssh2/libssh2/releases/download/libssh2-${LIBSSH2_VERSION}/libssh2-${LIBSSH2_VERSION}.tar.gz" "${LIBSSH2_SHA256}" libssh2.tar.gz \
         libssh2 "https://github.com/libssh2/libssh2/releases/download/libssh2-${LIBSSH2_VERSION}/libssh2-${LIBSSH2_VERSION}.tar.gz.asc" && \

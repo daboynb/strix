@@ -20,6 +20,12 @@ ids=()
 [ "$build_msf" != true ] || ids+=(msf)
 for id in "${ids[@]}"; do
   dir="$artifacts/${track}-bundle-${id}"
+  # actions/download-artifact extracts a pattern that matches a single artifact straight
+  # into the path, without the per-artifact subdirectory it creates for multiple matches;
+  # when only one bundle was built, fall back to the artifacts root.
+  if [ ! -d "$dir" ] && [ "${#ids[@]}" -eq 1 ]; then
+    dir="$artifacts"
+  fi
   [ -d "$dir" ] || die "artifact ${track}-bundle-${id} missing"
   "${SCRIPT_DIR}/publish-bundle-release.sh" "$id" "$dir" "$sha"
 done
