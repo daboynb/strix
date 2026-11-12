@@ -1,7 +1,8 @@
 # Reusable: build the selected native bundles at <ref>, create + sign (or leave
 # unsigned for PR checks) their manifests, run the smoke checks and upload them as
 # artifacts "<artifact_prefix>bundle-tools" / "<artifact_prefix>bundle-msf"
-# (dist/<bundle>.tar.gz.bin, .json, .json.sig) and build logs.
+# (dist/<bundle>.tar.gz.bin, .json, .json.sig) and build logs. An msf bundle must
+# also start msfrpcd on an Android emulator (emulator-msf-test.yml), else this fails.
 # Publishing is up to the caller (scripts/publish-bundle-release.sh).
 name: Bundle build (reusable)
 
@@ -133,3 +134,12 @@ jobs:
           path: ${{ matrix.dir }}/build.log
           if-no-files-found: ignore
           retention-days: 14
+
+  emulator:
+    needs: build
+    if: inputs.msf
+    permissions:
+      contents: read
+    uses: ./.github/workflows/emulator-msf-test.yml
+    with:
+      artifact: ${{ inputs.artifact_prefix }}bundle-msf

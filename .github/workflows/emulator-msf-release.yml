@@ -1,0 +1,48 @@
+# Manual: run emulator-msf-test.yml on an already published (or draft) msf release.
+name: Emulator msf test (release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: bundles-msf-* release to test (empty = newest, drafts included)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # listing/downloading draft releases needs push access; nothing is written
+    steps:
+      - name: Download msf bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" --jq \
+              '[.[] | select(.tag_name | startswith("bundles-msf-"))][0].tag_name')
+          fi
+          echo "Testing $TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'ruby-msf-bundle.tar.gz.bin' -D bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: emulator-msf-bundle
+          path: bundle/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  test:
+    needs: fetch
+    permissions:
+      contents: read
+    uses: ./.github/workflows/emulator-msf-test.yml
+    with:
+      artifact: emulator-msf-bundle

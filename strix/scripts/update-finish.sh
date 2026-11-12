@@ -6,9 +6,8 @@
 #
 # Publishes each built bundle (idempotent, see publish-bundle-release.sh), then marks
 # the PR ready and squash-merges it, only if its head is still <sha>.
-# The msf bundle is released as a DRAFT: CI cannot run it on Android (only a host load
-# test), so users get it only after it was started on a device and the draft published:
-#   gh release edit <tag> --draft=false
+# An msf bundle reaching this point also started msfrpcd on an Android emulator
+# (bundle-build.yml -> emulator-msf-test.yml), so it is published right away.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,17 +29,7 @@ for id in "${ids[@]}"; do
     dir="$artifacts"
   fi
   [ -d "$dir" ] || die "artifact ${track}-bundle-${id} missing"
-  if [ "$id" = msf ]; then
-    BUNDLE_RELEASE_DRAFT=true "${SCRIPT_DIR}/publish-bundle-release.sh" "$id" "$dir" "$sha" | tee /tmp/publish-msf.out
-    tag=$(sed -n 's/^tag=//p' /tmp/publish-msf.out | tail -n1)
-    if [ "$(sed -n 's/^draft=//p' /tmp/publish-msf.out | tail -n1)" = true ]; then
-      msg="MSF bundle ${tag} is a draft: start msfrpcd from it on a device, then publish it with: gh release edit ${tag} -R ${repo} --draft=false"
-      echo "::notice title=MSF bundle waiting for a device test::${msg}"
-      [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "$msg" >> "$GITHUB_STEP_SUMMARY"
-    fi
-  else
-    "${SCRIPT_DIR}/publish-bundle-release.sh" "$id" "$dir" "$sha"
-  fi
+  "${SCRIPT_DIR}/publish-bundle-release.sh" "$id" "$dir" "$sha"
 done
 
 if [ "$(gh pr view "$pr" -R "$repo" --json isDraft --jq .isDraft)" = true ]; then
