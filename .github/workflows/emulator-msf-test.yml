@@ -1,0 +1,78 @@
+# Runs an msf bundle on Android emulators the way the app does (install layout + the
+# app's post-install patches, msfrpcd with the app's command and env, RPC calls):
+# scripts/emulator-msf-test.sh. Free x86_64 runner with KVM; the google_apis x86_64
+# images run the bundle's aarch64 binaries through their ARM translation
+# (libndk_translation). Manual; also called by bundle-build.yml. Publishes nothing.
+name: Emulator msf test
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: bundles-msf-* release to test (empty = newest, drafts included)
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      artifact:
+        description: Name of an uploaded artifact holding ruby-msf-bundle.tar.gz.bin
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write # read draft releases (workflow_dispatch); nothing is written
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+      - name: Bundle from artifact
+        if: inputs.artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact }}
+          path: bundle
+      - name: Bundle from release
+        if: inputs.artifact == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" --jq \
+              '[.[] | select(.tag_name | startswith("bundles-msf-"))][0].tag_name')
+          fi
+          echo "Testing $TAG"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'ruby-msf-bundle.tar.gz.bin' -D bundle
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run msfrpcd on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          disk-size: 6000M
+          script: strix/scripts/emulator-msf-test.sh "$(find bundle -name ruby-msf-bundle.tar.gz.bin -print -quit)" 2400
