@@ -1,0 +1,59 @@
+# Experiment: does a free x86_64 runner (KVM) + Android emulator run the msf bundle's
+# aarch64 Ruby through the system image's ARM translation? If it does, a full
+# msfrpcd test can be added before publishing msf bundles; if not, only a device test
+# can catch Android-only problems. Manual only; publishes nothing.
+name: Emulator probe (msf Ruby)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: bundles-msf-* release to test (empty = newest non-draft)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: KVM available?
+        run: ls -l /dev/kvm
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Download msf bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" --jq \
+              '[.[] | select(.draft | not) | select(.tag_name | startswith("bundles-msf-"))][0].tag_name')
+          fi
+          echo "Testing $TAG"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'ruby-msf-bundle.*' -D bundle
+          strix/scripts/smoke-bundle.sh msf bundle/ruby-msf-bundle.tar.gz.bin bundle/ruby-msf-bundle.json
+      - name: Run Ruby on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: strix/scripts/emulator-ruby-probe.sh bundle/ruby-msf-bundle.tar.gz.bin

@@ -180,6 +180,14 @@ bundle config set --local path vendor/bundle
 bundle config set --local without 'development test coverage'
 bundle config set --local jobs $(nproc)
 
+# Host extensions are linked -Bsymbolic like the cross ones (FASE 5), so the load
+# test below runs the same linkage the device will. Bundler only takes per-gem build
+# args: BUNDLE_BUILD__<NAME> for every gem in the lockfile (key: . -> __, - -> ___).
+while IFS= read -r gem; do
+    key=${gem//./__}; key=${key//-/___}
+    export "BUNDLE_BUILD__${key^^}=--with-ldflags=-Wl,-Bsymbolic"
+done < <(sed -nE 's/^    ([A-Za-z0-9_.-]+) \(.*/\1/p' "${GEMLOCK}" | sort -u)
+
 # One retry for transient network errors; the retry must succeed
 if ! bundle install; then
     echo "WARN: bundle install failed, retrying once..."
@@ -187,6 +195,23 @@ if ! bundle install; then
 fi
 bundle check
 cmp -s "${GEMLOCK}" Gemfile.lock || { echo "FAIL: bundle install rewrote the pinned Gemfile.lock"; exit 1; }
+unset "${!BUNDLE_BUILD__@}"
+
+# Load test: start Metasploit like the app does (msfenv, framework, msgrpc over SSL,
+# auth.login + core.version) with the host Ruby, built with the same static/exported
+# stdlib extensions as the Android one. A gem that cannot load fails the build here
+# instead of on the device (issue #13: openssl gem vs Ruby's static openssl).
+echo ""
+echo "=== FASE 3b: Load test (host Ruby) ==="
+# Environment as in the app (MsfrpcdLaunch.kt): GEM_HOME = vendor bundle, GEM_PATH adds Ruby's gems.
+LOADTEST_HOME=$(mktemp -d)
+LOADTEST_API=$(${RUBY_HOST}/bin/ruby -e 'print RbConfig::CONFIG["ruby_version"]')
+HOME=${LOADTEST_HOME} \
+GEM_HOME=${MSF_DIR}/vendor/bundle/ruby/${LOADTEST_API} \
+GEM_PATH=${MSF_DIR}/vendor/bundle/ruby/${LOADTEST_API}:${RUBY_HOST}/lib/ruby/gems/${LOADTEST_API} \
+    timeout 900 ${RUBY_HOST}/bin/ruby /opt/msf-load-test.rb ${MSF_DIR} \
+    || { echo "FAIL: Metasploit does not start with the bundled gems (load test)"; exit 1; }
+rm -rf "${LOADTEST_HOME}"
 
 TOTAL_GEMS=$(find vendor/bundle -name "*.gemspec" | wc -l)
 echo "Gemme installate: ${TOTAL_GEMS}"

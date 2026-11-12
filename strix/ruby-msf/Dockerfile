@@ -116,6 +116,7 @@ ENV API_LEVEL=${API_LEVEL}
 COPY --from=strix-scripts msf-gemlock.sh /opt/strix-scripts/
 RUN ln -s /opt/strix-scripts/msf-gemlock.sh /usr/local/bin/strix-msf-gemlock
 COPY 02-msf/Gemfile.lock /opt/msf-Gemfile.lock
+COPY 02-msf/msf-load-test.rb /opt/msf-load-test.rb
 COPY 02-msf/build-msf.sh /opt/build-msf.sh
 RUN chmod +x /opt/build-msf.sh && /opt/build-msf.sh
 

@@ -78,19 +78,23 @@ prefix_of() {
   esac
 }
 
+# Drafts count too: an automated msf release stays a draft until tested on a device
+# (publish-bundle-release.sh), and its inputs must not be rebuilt meanwhile.
 released() {
   local fp prefix
   fp=$(fingerprint "$1"); prefix="bundles-$1-"
   gh api "repos/$2/releases?per_page=100" --paginate --jq \
-    ".[] | select(.draft | not) | select(.tag_name | startswith(\"${prefix}\"))
+    ".[] | select(.tag_name | startswith(\"${prefix}\"))
          | select((.body // \"\") | contains(\"fingerprint: ${fp}\")) | .tag_name" | awk 'NR==1'
 }
 
+# Highest N among git tags and release tag names: a draft release has no git tag yet.
 next_tag() {
   local prefix n
   prefix=$(prefix_of "$1")
-  n=$(gh api "repos/$2/git/matching-refs/tags/${prefix}" --jq '.[].ref' \
-      | sed -nE "s|^refs/tags/${prefix//./\\.}([0-9]+)$|\1|p" | sort -n | tail -n1)
+  n=$( { gh api "repos/$2/git/matching-refs/tags/${prefix}" --jq '.[].ref | ltrimstr("refs/tags/")'
+         gh api "repos/$2/releases?per_page=100" --paginate --jq '.[].tag_name'; } \
+      | sed -nE "s|^${prefix//./\\.}([0-9]+)$|\1|p" | sort -n | tail -n1)
   echo "${prefix}$(( ${n:-0} + 1 ))"
 }
 

@@ -7,6 +7,8 @@
 # Without [tag]: if a release with the same input fingerprint already exists it is
 # reused (idempotent re-runs), otherwise the next free tag is created at <target-sha>.
 # With [tag] (tag-push builds): the release for that existing tag is created/updated.
+# BUNDLE_RELEASE_DRAFT=true creates the new release as a draft: the app ignores drafts
+# (GitHubReleases.kt), so it reaches users only once someone publishes it after a test.
 # Writes "tag=<tag>" and "created=true|false" to $GITHUB_OUTPUT when set.
 # Needs: gh (GH_TOKEN), jq, openssl, GITHUB_REPOSITORY.
 set -euo pipefail
@@ -19,6 +21,12 @@ id=$1 dist=$2 sha=$3 tag=${4:-}
 repo=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY not set}
 meta="${SCRIPT_DIR}/bundle-meta.sh"
 out() { [ -z "${GITHUB_OUTPUT:-}" ] || echo "$1" >> "$GITHUB_OUTPUT"; echo "$1"; }
+draft=()
+case "${BUNDLE_RELEASE_DRAFT:-false}" in
+  true) draft=(--draft) ;;
+  false) ;;
+  *) die "BUNDLE_RELEASE_DRAFT must be true or false" ;;
+esac
 
 case "$id" in tools) base=tools-bundle ;; msf) base=ruby-msf-bundle ;; *) die "unknown id $id" ;; esac
 files=("$dist/$base.tar.gz.bin" "$dist/$base.json" "$dist/$base.json.sig")
@@ -42,7 +50,7 @@ if [ -z "$tag" ]; then
     exit 0
   fi
   tag=$("$meta" next-tag "$id" "$repo")
-  gh release create "$tag" -R "$repo" --target "$sha" --latest=false \
+  gh release create "$tag" -R "$repo" --target "$sha" --latest=false "${draft[@]}" \
     --title "$tag" --notes "$notes" "${files[@]}"
 else
   if gh release view "$tag" -R "$repo" > /dev/null 2>&1; then
@@ -53,4 +61,4 @@ else
   gh release upload "$tag" -R "$repo" --clobber "${files[@]}"
 fi
 gh release view "$tag" -R "$repo" --json assets --jq '.assets[] | "\(.name) \(.size)"'
-out "tag=$tag"; out "created=true"
+out "tag=$tag"; out "created=true"; out "draft=$([ ${#draft[@]} -gt 0 ] && echo true || echo false)"

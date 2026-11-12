@@ -49,7 +49,14 @@ echo "============================================"
 echo ""
 echo "=== FASE 1: Ruby host ==="
 cd ${RUBY_SRC}
-./configure --prefix=${HOST_RUBY} --disable-install-doc
+# Same extension layout as the Android Ruby (FASE 3): stdlib extensions statically
+# linked and exported by the binary. build-msf.sh loads Metasploit with this Ruby
+# before shipping, so it must hit the same symbol clashes the device would (issue #13).
+./configure --prefix=${HOST_RUBY} --disable-install-doc \
+    --disable-jit-support \
+    --without-gmp \
+    --with-static-linked-ext \
+    --with-out-ext=readline,dbm,gdbm,sdbm
 make -j$(nproc)
 make install
 echo "PASS: $(${HOST_RUBY}/bin/ruby --version)"
