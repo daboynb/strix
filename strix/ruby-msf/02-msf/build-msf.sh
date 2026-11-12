@@ -276,6 +276,10 @@ mark_gem() { # <gemname> PASS|FAIL  — FAIL is never downgraded to PASS
     echo "$2" > "/tmp/gem_$1"
 }
 
+# -Bsymbolic (extconf --with-ldflags below): Ruby is built with --with-static-linked-ext
+# and its binary exports the stdlib extensions' symbols (e.g. openssl 3.2's
+# Init_ossl_asn1). Without it a gem's own copy of such an extension (openssl 3.3.3)
+# binds its internal calls to the binary's older code and fails at load (issue #13).
 for gemdir in ${GEM_BASE}/*/; do
     [ -d "${gemdir}ext" ] || continue
     gemname=$(basename "$gemdir")
@@ -305,6 +309,7 @@ for gemdir in ${GEM_BASE}/*/; do
             --with-xslt-include=${DEPS}/include \
             --with-xslt-lib=${DEPS}/lib \
             --enable-system-libraries \
+            --with-ldflags=-Wl,-Bsymbolic \
             || [ ! -f Makefile ]; then
             echo "FAIL: extconf (${gemname}/${extbase})"
             [ -f mkmf.log ] && tail -n 30 mkmf.log

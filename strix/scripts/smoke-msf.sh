@@ -75,6 +75,22 @@ smoke_msf() {
              -not -path '*/metasploit-payloads-*' -not -path '*/metasploit_payloads-mettle-*' -print0)
   [ "$bad" = 1 ] || pass "vendored gem .so files are aarch64"
 
+  # Ruby extensions of vendored gems must be linked -Bsymbolic: the ruby binary exports
+  # its static stdlib extensions, which would otherwise win over a gem's own copy (issue #13).
+  # GNU ld writes a (SYMBOLIC) tag, lld only DF_SYMBOLIC in (FLAGS). readelf output is
+  # captured first: `readelf | grep -q` can die of SIGPIPE under pipefail and skip a file.
+  bad=0
+  local syms dyn
+  while IFS= read -r -d '' so; do
+    syms=$(readelf -W --dyn-syms "$so" 2>/dev/null || true)
+    grep -qE ' Init_[A-Za-z0-9_]+$' <<< "$syms" || continue
+    dyn=$(readelf -d "$so" 2>/dev/null || true)
+    grep -qE '\(SYMBOLIC\)|\(FLAGS\).*\bSYMBOLIC\b' <<< "$dyn" \
+      || { fail "not linked -Bsymbolic: ${so#"$root"/}"; bad=1; }
+  done < <(find "$vroot/extensions" "$vroot/gems" -type f -name '*.so' \
+             -not -path '*/metasploit-payloads-*' -not -path '*/metasploit_payloads-mettle-*' -print0)
+  [ "$bad" = 1 ] || pass "vendored gem extensions linked -Bsymbolic"
+
   # DT_NEEDED of our Ruby, its extensions and the cross-compiled gem extensions must be
   # in the bundle or Android system libs (payload gems ship target binaries: excluded)
   deps_check --prune '*/metasploit-payloads-*' --prune '*/metasploit_payloads-mettle-*' "$rb" "$vroot"
