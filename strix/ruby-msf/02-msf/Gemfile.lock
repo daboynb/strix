@@ -15,12 +15,12 @@ GIT
 PATH
   remote: .
   specs:
-    metasploit-framework (6.5.9)
+    metasploit-framework (6.5.11)
       aarch64
       abbrev
-      actionpack (~> 8.0.5)
-      activerecord (~> 8.0.5)
-      activesupport (~> 8.0.5)
+      actionpack (~> 8.1.4.1)
+      activerecord (~> 8.1.4.1)
+      activesupport (~> 8.1.4.1)
       aws-sdk-ec2
       aws-sdk-ec2instanceconnect
       aws-sdk-iam
@@ -88,7 +88,7 @@ PATH
       pg
       puma
       rack (~> 3.1)
-      railties (~> 8.0.5)
+      railties (~> 8.1.4.1)
       rasn1 (= 0.14.0)
       rb-readline
       recog
@@ -144,9 +144,9 @@ GEM
     Ascii85 (2.0.1)
     aarch64 (3.0.0)
     abbrev (0.1.2)
-    actionpack (8.0.5.2)
-      actionview (= 8.0.5.2)
-      activesupport (= 8.0.5.2)
+    actionpack (8.1.4.1)
+      actionview (= 8.1.4.1)
+      activesupport (= 8.1.4.1)
       nokogiri (>= 1.8.5)
       rack (>= 2.2.4)
       rack-session (>= 1.0.1)
@@ -154,26 +154,26 @@ GEM
       rails-dom-testing (~> 2.2)
       rails-html-sanitizer (~> 1.6)
       useragent (~> 0.16)
-    actionview (8.0.5.2)
-      activesupport (= 8.0.5.2)
+    actionview (8.1.4.1)
+      activesupport (= 8.1.4.1)
       builder (~> 3.1)
       erubi (~> 1.11)
       rails-dom-testing (~> 2.2)
       rails-html-sanitizer (~> 1.6, >= 1.7.2)
-    activemodel (8.0.5.2)
-      activesupport (= 8.0.5.2)
-    activerecord (8.0.5.2)
-      activemodel (= 8.0.5.2)
-      activesupport (= 8.0.5.2)
+    activemodel (8.1.4.1)
+      activesupport (= 8.1.4.1)
+    activerecord (8.1.4.1)
+      activemodel (= 8.1.4.1)
+      activesupport (= 8.1.4.1)
       timeout (>= 0.4.0)
-    activesupport (8.0.5.2)
+    activesupport (8.1.4.1)
       base64
-      benchmark (>= 0.3)
       bigdecimal
       concurrent-ruby (~> 1.0, >= 1.3.1)
       connection_pool (>= 2.2.5)
       drb
       i18n (>= 1.6, < 2)
+      json
       logger (>= 1.4.2)
       minitest (>= 5.1)
       securerandom (>= 0.3)
@@ -345,7 +345,7 @@ GEM
       json_schemer (>= 2.4)
     memory_profiler (1.1.0)
     metasm (1.0.6)
-    metasploit-concern (5.0.7)
+    metasploit-concern (5.0.8)
       activemodel (>= 7.0, < 9.0)
       activesupport (>= 7.0, < 9.0)
       drb
@@ -366,7 +366,7 @@ GEM
       rex-socket
       rubyntlm
       rubyzip (>= 3.1.1, < 4.0)
-    metasploit-model (5.0.6)
+    metasploit-model (5.0.8)
       activemodel (>= 7.0, < 9.0)
       activesupport (>= 7.0, < 9.0)
       bigdecimal
@@ -374,7 +374,7 @@ GEM
       mutex_m
       railties (>= 7.0, < 9.0)
     metasploit-payloads (2.0.257)
-    metasploit_data_models (6.0.19)
+    metasploit_data_models (6.0.20)
       activerecord (>= 7.0, < 9.0)
       activesupport (>= 7.0, < 9.0)
       arel-helpers
@@ -489,9 +489,9 @@ GEM
     rails-html-sanitizer (1.7.2)
       loofah (~> 2.25, >= 2.25.3)
       nokogiri (>= 1.15.7, != 1.16.7, != 1.16.6, != 1.16.5, != 1.16.4, != 1.16.3, != 1.16.2, != 1.16.1, != 1.16.0.rc1, != 1.16.0)
-    railties (8.0.5.2)
-      actionpack (= 8.0.5.2)
-      activesupport (= 8.0.5.2)
+    railties (8.1.4.1)
+      actionpack (= 8.1.4.1)
+      activesupport (= 8.1.4.1)
       irb (~> 1.13)
       rackup (>= 1.0.0)
       rake (>= 12.2)
@@ -752,11 +752,11 @@ CHECKSUMS
   Ascii85 (2.0.1) sha256=15cb5d941808543cbb9e7e6aea3c8ec3877f154c3461e8b3673e97f7ecedbe5a
   aarch64 (3.0.0) sha256=44b6358a7b8d8eb1c00f41f0ce66051e2e611d895ba34f03419fbcb108970625
   abbrev (0.1.2) sha256=ad1b4eaaaed4cb722d5684d63949e4bde1d34f2a95e20db93aecfe7cbac74242
-  actionpack (8.0.5.2) sha256=5b96a0a841192954151047b4f6e8d992d56f767922e53b9e2c94449a26aebd61
-  actionview (8.0.5.2) sha256=8bba8b4a165a555eda0d9bf1c035de0644a77b6700fc5f214a7c0f75ae241cab
-  activemodel (8.0.5.2) sha256=8aabf86d1dc1516f47329d0cc8d61dea2af9652606e1bbfa467558bef615f375
-  activerecord (8.0.5.2) sha256=f2abc9288493a2ca9617a2287c229daad425d2eeb74f44027a8cdb3b46055d14
-  activesupport (8.0.5.2) sha256=673acec3133cc8108a03d5ae0e3a9d0f5c7f818d02db33bcfed527a6c57bcdd1
+  actionpack (8.1.4.1) sha256=8c6f2e7cbd2653ef0539bde1ff20eb3e2e264e366affe56f0ba7f06d3670cb4b
+  actionview (8.1.4.1) sha256=d25b4d9cf8d0c0195ffcfe8b2cf3fcbe6fea54fd7c17f1a9cb8182881463f12b
+  activemodel (8.1.4.1) sha256=063caf105372fbc98b2d789e4be23de63ac5c043f7d9330f04e2caddb7012805
+  activerecord (8.1.4.1) sha256=bd65599ca0b5d210937f835d42c7aff69d271741c75aab022730be6cbce67e87
+  activesupport (8.1.4.1) sha256=16ac4f341ca65c85a1fcdb8ac73f68891aae9e3c4a6f9c3a27daed8b00017ed7
   addressable (2.9.2) sha256=9117c7e7d6ee07230e75ce41fb9401ae55354dc654fcd0e862ba41d539e9a610
   afm (0.2.2) sha256=c83e698e759ab0063331ff84ca39c4673b03318f4ddcbe8e90177dd01e4c721a
   allure-rspec (2.32.0) sha256=090b713e641f8f50ca5bc94b5f08d3cee84f1704233f069e22fc1f16fb6e847d
@@ -847,12 +847,12 @@ CHECKSUMS
   mcp (1.9.0) sha256=e4dd0f09ad972abde2cdd8d5b8d828f62fe999ba0e20ce2ab3ae1fbf4662f295
   memory_profiler (1.1.0) sha256=79a17df7980a140c83c469785905409d3027ca614c42c086089d128b805aa8f8
   metasm (1.0.6) sha256=af86e7d0e14df6cb7f60195b77ec55313a83c4ba6c99753a52d6456d1d31ccc8
-  metasploit-concern (5.0.7) sha256=ef27b43b03c232d1aeb7c7239bee081413486622eb5d028be9d1083d89bca013
+  metasploit-concern (5.0.8) sha256=55b595ed9f27c79864c1a9013991f1f6bd5701affadbfbfaf714b08b96bda881
   metasploit-credential (6.0.26) sha256=befaad22e477e9a3f05092583e7d48568742aed2aa5fd172503e2e4b8053f381
-  metasploit-framework (6.5.9)
-  metasploit-model (5.0.6) sha256=c300ec7f4ff26df206056a4dfd695f52aceacf2a1761edb747d2279e168af5f2
+  metasploit-framework (6.5.11)
+  metasploit-model (5.0.8) sha256=78ac44b20dfc93d379a0bf72dc0d5372417016419d94f24e8d00c173c18a2fa1
   metasploit-payloads (2.0.257) sha256=434593e457b3fca9fdfb4d17d0fb8a82a0c0d12fa79e66a6e5e57bc74f41569e
-  metasploit_data_models (6.0.19) sha256=e1e01c2c696681d313fd723b688d773f1b8f60280da78c8e67a8130bbc99db02
+  metasploit_data_models (6.0.20) sha256=dac4ac7e798cbdc567c811d3011b08eebbf1bc2ea2c052b451b580a8d96ceb8e
   metasploit_payloads-mettle (1.0.48) sha256=334040323a591d538cf57e19f46a4eff18c69043bc1a938985837debe7d30369
   method_source (1.1.0) sha256=181301c9c45b731b4769bc81e8860e72f9161ad7d66dd99103c9ab84f560f5c5
   mime-types (3.7.0) sha256=dcebf61c246f08e15a4de34e386ebe8233791e868564a470c3fe77c00eed5e56
@@ -905,7 +905,7 @@ CHECKSUMS
   rackup (2.3.1) sha256=6c79c26753778e90983761d677a48937ee3192b3ffef6bc963c0950f94688868
   rails-dom-testing (2.3.0) sha256=8acc7953a7b911ca44588bf08737bc16719f431a1cc3091a292bca7317925c1d
   rails-html-sanitizer (1.7.2) sha256=a21ef45b7a6639fc8e2282473c547514cb86ae271616162a946bf89148fa2424
-  railties (8.0.5.2) sha256=4b43a2c134a1b9887dd9ef659c71f61e8376d18a8fc52a09471979666b919fa6
+  railties (8.1.4.1) sha256=ff2ef4b5a62cbc89811f88be11c776e2ed71b14dd012eae6a494d37994aa9782
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
   rasn1 (0.14.0) sha256=22a54480d4ca01b44ef290b4739acbbdce615591101c9d7bcb02d42f8934e9e7
