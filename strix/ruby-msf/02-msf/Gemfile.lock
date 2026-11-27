@@ -15,7 +15,7 @@ GIT
 PATH
   remote: .
   specs:
-    metasploit-framework (6.5.11)
+    metasploit-framework (6.5.13)
       aarch64
       abbrev
       actionpack (~> 8.1.4.1)
@@ -63,7 +63,7 @@ PATH
       metasploit-model
       metasploit-payloads (= 2.0.257)
       metasploit_data_models (>= 6.0.15)
-      metasploit_payloads-mettle (= 1.0.48)
+      metasploit_payloads-mettle (= 1.0.49)
       mqtt
       msgpack
       mutex_m
@@ -179,7 +179,7 @@ GEM
       securerandom (>= 0.3)
       tzinfo (~> 2.0, >= 2.0.5)
       uri (>= 0.13.1)
-    addressable (2.9.2)
+    addressable (2.10.0)
       public_suffix (>= 2.0.2, < 8.0)
     afm (0.2.2)
     allure-rspec (2.32.0)
@@ -387,7 +387,7 @@ GEM
       railties (>= 7.0, < 9.0)
       recog
       webrick
-    metasploit_payloads-mettle (1.0.48)
+    metasploit_payloads-mettle (1.0.49)
     method_source (1.1.0)
     mime-types (3.7.0)
       logger
@@ -512,7 +512,7 @@ GEM
       prism (>= 1.6.0)
       rbs (>= 4.0.0)
       tsort
-    recog (3.1.37)
+    recog (3.1.38)
       nokogiri
     redcarpet (3.6.1)
     regexp_parser (2.13.1)
@@ -757,7 +757,7 @@ CHECKSUMS
   activemodel (8.1.4.1) sha256=063caf105372fbc98b2d789e4be23de63ac5c043f7d9330f04e2caddb7012805
   activerecord (8.1.4.1) sha256=bd65599ca0b5d210937f835d42c7aff69d271741c75aab022730be6cbce67e87
   activesupport (8.1.4.1) sha256=16ac4f341ca65c85a1fcdb8ac73f68891aae9e3c4a6f9c3a27daed8b00017ed7
-  addressable (2.9.2) sha256=9117c7e7d6ee07230e75ce41fb9401ae55354dc654fcd0e862ba41d539e9a610
+  addressable (2.10.0) sha256=5e13b9c001adf01dd65ad6e0d2a91d2bc07885c0ff2b83f48cbcd95e08d9de62
   afm (0.2.2) sha256=c83e698e759ab0063331ff84ca39c4673b03318f4ddcbe8e90177dd01e4c721a
   allure-rspec (2.32.0) sha256=090b713e641f8f50ca5bc94b5f08d3cee84f1704233f069e22fc1f16fb6e847d
   allure-ruby-commons (2.32.0) sha256=a723d5d41191fee5406ebe9c80c24a308007c8322efbbca51d38c5501b516aa2
@@ -849,11 +849,11 @@ CHECKSUMS
   metasm (1.0.6) sha256=af86e7d0e14df6cb7f60195b77ec55313a83c4ba6c99753a52d6456d1d31ccc8
   metasploit-concern (5.0.8) sha256=55b595ed9f27c79864c1a9013991f1f6bd5701affadbfbfaf714b08b96bda881
   metasploit-credential (6.0.26) sha256=befaad22e477e9a3f05092583e7d48568742aed2aa5fd172503e2e4b8053f381
-  metasploit-framework (6.5.11)
+  metasploit-framework (6.5.13)
   metasploit-model (5.0.8) sha256=78ac44b20dfc93d379a0bf72dc0d5372417016419d94f24e8d00c173c18a2fa1
   metasploit-payloads (2.0.257) sha256=434593e457b3fca9fdfb4d17d0fb8a82a0c0d12fa79e66a6e5e57bc74f41569e
   metasploit_data_models (6.0.20) sha256=dac4ac7e798cbdc567c811d3011b08eebbf1bc2ea2c052b451b580a8d96ceb8e
-  metasploit_payloads-mettle (1.0.48) sha256=334040323a591d538cf57e19f46a4eff18c69043bc1a938985837debe7d30369
+  metasploit_payloads-mettle (1.0.49) sha256=e156e351ae7060493cd49869d19725e7468a13998b90c36248e8a39e89823111
   method_source (1.1.0) sha256=181301c9c45b731b4769bc81e8860e72f9161ad7d66dd99103c9ab84f560f5c5
   mime-types (3.7.0) sha256=dcebf61c246f08e15a4de34e386ebe8233791e868564a470c3fe77c00eed5e56
   mime-types-data (3.2026.1103) sha256=cda7af94d895f1fd33e000acea800e6ed31e4c861e3d6c1a27c8b74f9e44dc64
@@ -912,7 +912,7 @@ CHECKSUMS
   rb-readline (0.5.5) sha256=9e9bd7e198bdef0822c46902f6c592b882c1f9777894a4c3dcf5b320824a8793
   rbs (4.1.3) sha256=0c4474a9751cdc14364bfad0b3e53678323bbdc2c31683b0445932867dbab8c4
   rdoc (8.1.0) sha256=befc37880a5cfd36dcb176c748b5fd5ee39dd3536a75e81824e4972ce230f60a
-  recog (3.1.37) sha256=08e13af53a276228d27fdbe80d266983677898e26e68b148c78a180164ca0a66
+  recog (3.1.38) sha256=d7daabb735bad0a09f7f9feb2a640ce667ff2676847b025eff5c2068ca707731
   redcarpet (3.6.1) sha256=d444910e6aa55480c6bcdc0cdb057626e8a32c054c29e793fa642ba2f155f445
   regexp_parser (2.13.1) sha256=5aedb6b7c35688f51e86eef17a15374dfd287c83f4ca644b2c5f3ec50a33b44b
   reline (0.7.0) sha256=5b012d8e55dbf9d450f12bde2cf7d15ff546ae80b3f8f3b30e570d431815583d
